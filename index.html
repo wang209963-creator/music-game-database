@@ -119,9 +119,7 @@
             console.error("載入列表失敗:", err);
             document.getElementById('levelList').innerHTML = `<div class="no-result" style="color:#ff3333; background:#fff0f0; padding:15px; border-radius:8px; border:1px solid #ffcccc;">❌ 無法連線至雲端資料庫。<br><br><b>可能原因：</b>你的瀏覽器或廣告阻擋器封鎖了 Supabase 網域，或者後台網路斷線。<br><br><small>詳細錯誤訊息：${err.message || JSON.stringify(err)}</small></div>`;
         }
-    }
-
-    function handleFileUpload(event) {
+    }function handleFileUpload(event) {
     const file = event.target.files[0];
     if (!file) return;
 
@@ -139,8 +137,8 @@
             .replace(".json", "")
             .replace(".levelpack", "");
 
-        let songTitle = jsonContent.name || jsonContent.title || jsonContent.musicName || songSongName || cleanFileName;
-        let songSinger = jsonContent.singer || jsonContent.artist || jsonContent.author || jsonContent.authorName || jsonContent.musicAuthor || "未知歌手";
+        let songTitle = (jsonContent.name || jsonContent.title || jsonContent.musicName || jsonContent.songName || cleanFileName).trim();
+        let songSinger = (jsonContent.singer || jsonContent.artist || jsonContent.author || jsonContent.authorName || jsonContent.musicAuthor || "未知歌手").trim();
         let diffs = [];
 
         if (jsonContent.charts && typeof jsonContent.charts === 'object') {
@@ -153,26 +151,43 @@
         if (diffs.length === 0) diffs = ["Level Pack"];
         diffs = diffs.map(d => String(d).trim());
 
-        // ====================================================
-        // 🛡️ 退回純數字命名安全防線：100% 解決 Invalid Key 報錯問題！
-        // ====================================================
-        const uniqueId = Date.now();
-        const cloudFileName = uniqueId + "_levelpack.json"; 
-        // ====================================================
-
         const bufferReader = new FileReader();
         bufferReader.onload = async function(bufEvent) {
             try {
+                // 🌟 1. 先去資料庫查詢是否有一模一樣「歌名」且「歌手」的歌曲
+                const { data: existingSongs, error: searchError } = await window.mySupabase
+                    .from('songs')
+                    .select('*')
+                    .eq('title', songTitle)
+                    .eq('singer', songSinger);
+
+                if (searchError) throw searchError;
+
+                let finalId = Date.now();
+                let cloudFileName = finalId + "_levelpack.json";
+
+                // 🌟 2. 如果這首歌早就存在了
+                if (existingSongs && existingSongs.length > 0) {
+                    const oldSong = existingSongs[0];
+                    finalId = oldSong.id; // 沿用舊的 ID，這樣在清單上就不會爆出新的一列！
+                    
+                    // 從舊的 file_url 中把原本的 Storage 檔名撈出來，直接覆蓋
+                    if (oldSong.file_url) {
+                        const urlParts = oldSong.file_url.split('/');
+                        cloudFileName = urlParts[urlParts.length - 1];
+                    }
+                }
+
                 const arrayBuffer = bufEvent.target.result;
                 const cleanFileObject = new File([arrayBuffer], "file.json", { type: "application/json" });
 
-                // 100% 安全上傳（檔名全英數）
+                // 🌟 3. 上傳檔案（如果是重傳同一關，這裡會因為檔名相同，直接覆蓋 Storage 的實體檔案）
                 const { data: storageData, error: storageError } = await window.mySupabase
                     .storage
                     .from('levelpacks')
                     .upload(cloudFileName, cleanFileObject, {
                         cacheControl: '3600',
-                        upsert: false
+                        upsert: true // 允許覆蓋同名實體檔案
                     });
 
                 if (storageError) throw storageError;
@@ -184,22 +199,23 @@
 
                 const publicUrl = urlData.publicUrl;
 
-                // 🌟 新增至資料庫時，把對應資訊寫進去，方便管理員在 Table Editor 查看
-                const newSong = {
-                    id: uniqueId,
+                // 🌟 4. 組裝資料，改用 upsert 寫入資料庫
+                const songPayload = {
+                    id: finalId, // 舊歌就維持舊ID，新歌就是新時間戳
                     title: songTitle,
                     singer: songSinger,
                     difficulties: diffs,
                     file_url: publicUrl
                 };
 
+                // upsert 會自動判斷：如果 id 存在就直接更新內容，不存在就新增一列
                 let { error: dbError } = await window.mySupabase
                     .from('songs')
-                    .insert([newSong]);
+                    .upsert([songPayload], { onConflict: 'id' });
 
                 if (dbError) throw dbError;
 
-                alert("🎉 譜面成功同步至雲端中心！");
+                alert("🎉 譜面已成功同步/更新至雲端中心！");
                 loadSongsFromCloud();
 
             } catch (error) {
@@ -213,7 +229,10 @@
         bufferReader.readAsArrayBuffer(file);
     };
     textReader.readAsText(file);
-            }
+    }
+
+    
+                
     async function downloadFileFromServer(fileUrl, songTitle) {
         if (!fileUrl) return alert("找不到雲端下載連結。");
         try {
