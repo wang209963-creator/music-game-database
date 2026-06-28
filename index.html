@@ -156,7 +156,8 @@
                 diffs = diffs.map(d => String(d).trim());
 
                 const uniqueId = Date.now();
-                const cloudFileName = `${uniqueId}_${file.name}`;
+                // 🌟 終極修正：強制將雲端檔名改為純英數（時間戳記_levelpack.json），徹底根除 Invalid key 錯誤
+const cloudFileName = `${uniqueId}_levelpack.json`;
 
                 // 1. 上傳至 Storage
                 const { data: storageData, error: storageError } = await window.mySupabase
