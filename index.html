@@ -284,8 +284,8 @@ const cloudFileName = `${uniqueId}_levelpack.json`;
                     </div>
                 </div>
                 <div class="card-actions">
-                    <button class="btn" onclick="triggerDownload('${song.file_url}')">下載</button>
-                </div>
+    <a class="btn" href="${song.file_url}" download="${song.title}.levelpack.json" target="_blank">下載</a>
+</div>
             </div>
         `).join('');
     }
