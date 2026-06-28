@@ -122,97 +122,98 @@
     }
 
     function handleFileUpload(event) {
-        const file = event.target.files[0];
-        if (!file) return;
+    const file = event.target.files[0];
+    if (!file) return;
 
-        document.getElementById('uploadArea').style.setProperty('display', 'none', 'important');
-        document.getElementById('uploadLoading').style.display = 'block';
+    document.getElementById('uploadArea').style.setProperty('display', 'none', 'important');
+    document.getElementById('uploadLoading').style.display = 'block';
 
-        const textReader = new FileReader();
-        textReader.onload = function(e) {
-            const rawText = e.target.result;
-            let jsonContent = {};
-            try { jsonContent = JSON.parse(rawText); } catch(pErr) {}
-            
-            const cleanFileName = file.name
-                .replace(".levelpack.json", "")
-                .replace(".json", "")
-                .replace(".levelpack", "");
+    const textReader = new FileReader();
+    textReader.onload = function(e) {
+        const rawText = e.target.result;
+        let jsonContent = {};
+        try { jsonContent = JSON.parse(rawText); } catch(pErr) {}
+        
+        const cleanFileName = file.name
+            .replace(".levelpack.json", "")
+            .replace(".json", "")
+            .replace(".levelpack", "");
 
-            let songTitle = jsonContent.name || jsonContent.title || jsonContent.musicName || jsonContent.songName || cleanFileName;
-            let songSinger = jsonContent.singer || jsonContent.artist || jsonContent.author || jsonContent.authorName || jsonContent.musicAuthor || "未知歌手";
-            let diffs = [];
+        let songTitle = jsonContent.name || jsonContent.title || jsonContent.musicName || songSongName || cleanFileName;
+        let songSinger = jsonContent.singer || jsonContent.artist || jsonContent.author || jsonContent.authorName || jsonContent.musicAuthor || "未知歌手";
+        let diffs = [];
 
-            if (jsonContent.charts && typeof jsonContent.charts === 'object') {
-                diffs = Object.keys(jsonContent.charts);
-            } else if (jsonContent.difficulty && typeof jsonContent.difficulty === 'object') {
-                diffs = Object.keys(jsonContent.difficulty);
-            } else if (Array.isArray(jsonContent.difficulties)) {
-                diffs = jsonContent.difficulties;
+        if (jsonContent.charts && typeof jsonContent.charts === 'object') {
+            diffs = Object.keys(jsonContent.charts);
+        } else if (jsonContent.difficulty && typeof jsonContent.difficulty === 'object') {
+            diffs = Object.keys(jsonContent.difficulty);
+        } else if (Array.isArray(jsonContent.difficulties)) {
+            diffs = jsonContent.difficulties;
+        }
+        if (diffs.length === 0) diffs = ["Level Pack"];
+        diffs = diffs.map(d => String(d).trim());
+
+        // ====================================================
+        // 🛡️ 退回純數字命名安全防線：100% 解決 Invalid Key 報錯問題！
+        // ====================================================
+        const uniqueId = Date.now();
+        const cloudFileName = uniqueId + "_levelpack.json"; 
+        // ====================================================
+
+        const bufferReader = new FileReader();
+        bufferReader.onload = async function(bufEvent) {
+            try {
+                const arrayBuffer = bufEvent.target.result;
+                const cleanFileObject = new File([arrayBuffer], "file.json", { type: "application/json" });
+
+                // 100% 安全上傳（檔名全英數）
+                const { data: storageData, error: storageError } = await window.mySupabase
+                    .storage
+                    .from('levelpacks')
+                    .upload(cloudFileName, cleanFileObject, {
+                        cacheControl: '3600',
+                        upsert: false
+                    });
+
+                if (storageError) throw storageError;
+
+                const { data: urlData } = window.mySupabase
+                    .storage
+                    .from('levelpacks')
+                    .getPublicUrl(cloudFileName);
+
+                const publicUrl = urlData.publicUrl;
+
+                // 🌟 新增至資料庫時，把對應資訊寫進去，方便管理員在 Table Editor 查看
+                const newSong = {
+                    id: uniqueId,
+                    title: songTitle,
+                    singer: songSinger,
+                    difficulties: diffs,
+                    file_url: publicUrl
+                };
+
+                let { error: dbError } = await window.mySupabase
+                    .from('songs')
+                    .insert([newSong]);
+
+                if (dbError) throw dbError;
+
+                alert("🎉 譜面成功同步至雲端中心！");
+                loadSongsFromCloud();
+
+            } catch (error) {
+                alert("上傳失敗：" + error.message);
+            } finally {
+                document.getElementById('uploadArea').style.display = 'block';
+                document.getElementById('uploadLoading').style.display = 'none';
+                document.getElementById('fileInput').value = ''; 
             }
-            if (diffs.length === 0) diffs = ["Level Pack"];
-            diffs = diffs.map(d => String(d).trim());
-
-            // 🌟 改善管理員後台體驗：保留時間戳防重複，但加上乾淨的中文/英文歌名
-const uniqueId = Date.now();
-// 把歌名中不適合當成網址或檔名的特殊字元（如空格、斜線、問號等）過濾掉
-const safeTitle = songTitle.replace(/[\/\?<>\\:\*\|":\s]/g, "_");
-const cloudFileName = uniqueId + "_" + safeTitle + ".json";
-
-            const bufferReader = new FileReader();
-            bufferReader.onload = async function(bufEvent) {
-                try {
-                    const arrayBuffer = bufEvent.target.result;
-                    const cleanFileObject = new File([arrayBuffer], "file.json", { type: "application/json" });
-
-                    const { data: storageData, error: storageError } = await window.mySupabase
-                        .storage
-                        .from('levelpacks')
-                        .upload(cloudFileName, cleanFileObject, {
-                            cacheControl: '3600',
-                            upsert: false
-                        });
-
-                    if (storageError) throw storageError;
-
-                    const { data: urlData } = window.mySupabase
-                        .storage
-                        .from('levelpacks')
-                        .getPublicUrl(cloudFileName);
-
-                    const publicUrl = urlData.publicUrl;
-
-                    const newSong = {
-                        id: uniqueId,
-                        title: songTitle,
-                        singer: songSinger,
-                        difficulties: diffs,
-                        file_url: publicUrl 
-                    };
-
-                    let { error: dbError } = await window.mySupabase
-                        .from('songs')
-                        .insert([newSong]);
-
-                    if (dbError) throw dbError;
-
-                    alert("🎉 譜面成功同步至雲端中心！");
-                    loadSongsFromCloud();
-
-                } catch (error) {
-                    alert("上傳失敗，請點選新分頁手動放行安全限制：\n" + error.message);
-                    console.error(error);
-                } finally {
-                    document.getElementById('uploadArea').style.display = 'block';
-                    document.getElementById('uploadLoading').style.display = 'none';
-                    document.getElementById('fileInput').value = ''; 
-                }
-            };
-            bufferReader.readAsArrayBuffer(file);
         };
-        textReader.readAsText(file);
-    }
-
+        bufferReader.readAsArrayBuffer(file);
+    };
+    textReader.readAsText(file);
+            }
     async function downloadFileFromServer(fileUrl, songTitle) {
         if (!fileUrl) return alert("找不到雲端下載連結。");
         try {
