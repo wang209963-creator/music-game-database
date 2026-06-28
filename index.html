@@ -156,9 +156,8 @@
                 diffs = diffs.map(d => String(d).trim());
 
                 const uniqueId = Date.now();
-               // 自動把檔名中的中文與特殊符號轉碼，防止 Supabase Storage 報 Invalid key 錯誤
-const safeFileName = encodeURIComponent(file.name).replace(/%/g, '_');
-const cloudFileName = `${uniqueId}_${safeFileName}`;
+               // 🌟 終極修正：強制將雲端檔名改為純英數（時間戳記_levelpack.json），徹底根除 Invalid key 錯誤
+const cloudFileName = `${uniqueId}_levelpack.json`;
 
                 // 1. 上傳至 Storage
                 const { data: storageData, error: storageError } = await window.mySupabase
