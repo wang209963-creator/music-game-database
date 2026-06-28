@@ -1,0 +1,312 @@
+<!DOCTYPE html>
+<html lang="zh-TW">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>線上音遊譜面下載中心</title>
+    <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+    <style>
+        body { font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif; background: #f0f2f5; margin: 0; padding: 20px; color: #333; }
+        .header-bar { display: flex; justify-content: center; align-items: center; max-width: 650px; margin: 0 auto 20px auto; }
+        h1 { margin: 0; color: #1a1a1a; font-size: 24px; text-align: center; }
+        .container { max-width: 650px; margin: 0 auto; }
+        .upload-panel { background: white; padding: 20px; border-radius: 10px; box-shadow: 0 2px 8px rgba(0,0,0,0.06); margin-bottom: 20px; }
+        .upload-area { border: 2px dashed #0070f3; background: #f0f7ff; padding: 20px; text-align: center; border-radius: 8px; cursor: pointer; transition: 0.2s; }
+        .upload-area:hover { background: #e1f0ff; }
+        .upload-area p { margin: 0; color: #0070f3; font-weight: bold; }
+        .upload-loading { display: none; text-align: center; color: #ff9800; font-weight: bold; padding: 10px; }
+        #fileInput { display: none; }
+        .search-box { width: 100%; padding: 12px; border: 2px solid #ddd; border-radius: 8px; font-size: 16px; box-sizing: border-box; margin-bottom: 15px; outline: none; transition: 0.3s; }
+        .search-box:focus { border-color: #0070f3; }
+        .filter-tags { display: flex; gap: 8px; flex-wrap: wrap; margin-bottom: 25px; }
+        .tag { background: #e4e6eb; padding: 6px 12px; border-radius: 20px; font-size: 14px; cursor: pointer; user-select: none; }
+        .tag.active { background: #0070f3; color: white; }
+        .level-list { display: flex; flex-direction: column; gap: 12px; }
+        .level-card { background: white; padding: 16px; border-radius: 10px; box-shadow: 0 2px 8px rgba(0,0,0,0.06); display: flex; justify-content: space-between; align-items: center; }
+        .level-info { flex: 1; min-width: 0; padding-right: 10px; }
+        .level-info .title { font-size: 18px; font-weight: bold; margin-bottom: 4px; color: #1a1a1a; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+        .level-info .singer { color: #666; font-size: 14px; margin-bottom: 6px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+        .difficulty-badges { display: flex; gap: 4px; flex-wrap: wrap; }
+        .diff-badge { background: #e8f4ff; color: #0070f3; font-size: 11px; padding: 2px 6px; border-radius: 4px; font-weight: bold; border: 1px solid #b3d7ff; }
+        .card-actions { display: flex; gap: 8px; align-items: center; flex-shrink: 0; }
+        .btn { background: #0070f3; color: white; border: none; padding: 10px 16px; border-radius: 6px; font-weight: bold; font-size: 14px; cursor: pointer; text-decoration: none; transition: 0.2s; }
+        .btn:hover { background: #0051cb; }
+        .btn-secondary { background: #666; font-size: 12px; padding: 4px 8px; }
+        .btn-secondary:disabled { background: #ccc; cursor: not-allowed; }
+        .no-result { text-align: center; color: #999; margin-top: 20px; }
+        .pagination-container { display: flex; flex-direction: column; align-items: center; gap: 10px; margin-top: 25px; }
+        .pagination { display: flex; justify-content: center; align-items: center; gap: 15px; }
+        .page-info { font-size: 14px; color: #666; font-weight: bold; }
+        .page-info .current { color: #0070f3; }
+        .page-size-selector { font-size: 13px; color: #555; }
+        .page-size-selector select { padding: 4px 8px; border-radius: 4px; border: 1px solid #ddd; margin-left: 4px; cursor: pointer; }
+        .hidden { display: none !important; }
+        @media (max-width: 480px) {
+            .level-card { flex-direction: column; align-items: flex-start; gap: 12px; }
+            .card-actions { width: 100%; justify-content: flex-end; }
+        }
+    </style>
+</head>
+<body>
+
+<div class="header-bar">
+    <h1>🎵 線上譜面下載中心</h1>
+</div>
+
+<div class="container">
+    <div class="upload-panel">
+        <div id="uploadArea" class="upload-area" onclick="document.getElementById('fileInput').click()">
+            <p>點擊此處選擇並上傳譜面檔案</p>
+            <span style="font-size: 12px; color: #666;">支援帶影片的 .levelpack 大型檔案 (已啟動雙重Headers防錯機制)</span>
+            <input type="file" id="fileInput" accept=".json" onchange="handleFileUpload(event)">
+        </div>
+        <div id="uploadLoading" class="upload-loading">⏳ 大檔案雲端同步中，請勿關閉網頁...</div>
+    </div>
+
+    <input type="text" id="searchBar" class="search-box" placeholder="🔍 輸入歌名或歌手進行搜尋...">
+    <div id="filterTags" class="filter-tags"></div>
+
+    <div id="levelList" class="level-list"></div>
+
+    <div id="paginationWrapper" class="pagination-container">
+        <div class="pagination">
+            <button id="prevPageBtn" class="btn btn-secondary" style="font-size:14px; padding:8px 14px;" onclick="changePage(-1)">上一頁</button>
+            <span id="pageInfo" class="page-info">第 1 / 1 頁</span>
+            <button id="nextPageBtn" class="btn btn-secondary" style="font-size:14px; padding:8px 14px;" onclick="changePage(1)">下一頁</button>
+        </div>
+        <div class="page-size-selector">
+            顯示筆數：
+            <select id="pageSizeSelect" onchange="changePageSize()">
+                <option value="10" selected>10 筆</option>
+                <option value="20">20 筆</option>
+                <option value="40">40 筆</option>
+                <option value="100">100 筆</option>
+            </select>
+        </div>
+    </div>
+</div>
+
+<script>
+    const SUPABASE_URL = "https://yoxoxtfagcjhvappldfv.supabase.co"; 
+    const SUPABASE_KEY = "sb_publishable_xw0x699BFyePMlWjm71Mlg_KTHM6uAU";
+    
+    window.mySupabase = supabase.createClient(SUPABASE_URL, SUPABASE_KEY);
+
+    let songData = [];
+    let currentSingerFilter = "全部";
+    let currentPage = 1;
+    let itemsPerPage = 10;
+
+    const searchBar = document.getElementById('searchBar');
+
+    window.onload = function() {
+        loadSongsFromCloud();
+    };
+
+    async function loadSongsFromCloud() {
+        try {
+            let { data, error } = await window.mySupabase
+                .from('songs')
+                .select('*')
+                .order('id', { ascending: false });
+
+            if (error) throw error;
+
+            songData = data || [];
+            initTags();
+            renderList();
+        } catch (err) {
+            console.error("載入列表失敗:", err);
+            document.getElementById('levelList').innerHTML = `<div class="no-result" style="color:#ff3333;">❌ 無法連線至雲端資料庫，請檢查 Supabase 後台的 RLS 政策是否開放。<br><small>${err.message || err}</small></div>`;
+        }
+    }
+
+    function handleFileUpload(event) {
+        const file = event.target.files[0];
+        if (!file) return;
+
+        document.getElementById('uploadArea').style.setProperty('display', 'none', 'important');
+        document.getElementById('uploadLoading').style.display = 'block';
+
+        const textReader = new FileReader();
+        textReader.onload = function(e) {
+            const rawText = e.target.result;
+            let jsonContent = {};
+            try { jsonContent = JSON.parse(rawText); } catch(pErr) {}
+            
+            const cleanFileName = file.name
+                .replace(".levelpack.json", "")
+                .replace(".json", "")
+                .replace(".levelpack", "");
+
+            let songTitle = jsonContent.name || jsonContent.title || jsonContent.musicName || jsonContent.songName || cleanFileName;
+            let songSinger = jsonContent.singer || jsonContent.artist || jsonContent.author || jsonContent.authorName || jsonContent.musicAuthor || "未知歌手";
+            let diffs = [];
+
+            if (jsonContent.charts && typeof jsonContent.charts === 'object') {
+                diffs = Object.keys(jsonContent.charts);
+            } else if (jsonContent.difficulty && typeof jsonContent.difficulty === 'object') {
+                diffs = Object.keys(jsonContent.difficulty);
+            } else if (Array.isArray(jsonContent.difficulties)) {
+                diffs = jsonContent.difficulties;
+            }
+            if (diffs.length === 0) diffs = ["Level Pack"];
+            diffs = diffs.map(d => String(d).trim());
+
+            const uniqueId = Date.now();
+            const cloudFileName = uniqueId + "_levelpack.json";
+
+            const bufferReader = new FileReader();
+            bufferReader.onload = async function(bufEvent) {
+                try {
+                    const arrayBuffer = bufEvent.target.result;
+                    const cleanFileObject = new File([arrayBuffer], "file.json", { type: "application/json" });
+
+                    const { data: storageData, error: storageError } = await window.mySupabase
+                        .storage
+                        .from('levelpacks')
+                        .upload(cloudFileName, cleanFileObject, {
+                            cacheControl: '3600',
+                            upsert: false
+                        });
+
+                    if (storageError) throw storageError;
+
+                    const { data: urlData } = window.mySupabase
+                        .storage
+                        .from('levelpacks')
+                        .getPublicUrl(cloudFileName);
+
+                    const publicUrl = urlData.publicUrl;
+
+                    const newSong = {
+                        id: uniqueId,
+                        title: songTitle,
+                        singer: songSinger,
+                        difficulties: diffs,
+                        file_url: publicUrl 
+                    };
+
+                    let { error: dbError } = await window.mySupabase
+                        .from('songs')
+                        .insert([newSong]);
+
+                    if (dbError) throw dbError;
+
+                    alert("🎉 譜面成功同步至雲端中心！");
+                    loadSongsFromCloud();
+
+                } catch (error) {
+                    alert("上傳失敗，請確認儲存桶 (Storage) 的 RLS 政策已開：\n" + error.message);
+                    console.error(error);
+                } finally { // ✅ 這裡已修正為正確的 finally
+                    document.getElementById('uploadArea').style.display = 'block';
+                    document.getElementById('uploadLoading').style.display = 'none';
+                    document.getElementById('fileInput').value = ''; 
+                }
+            };
+            bufferReader.readAsArrayBuffer(file);
+        };
+        textReader.readAsText(file);
+    }
+
+    async function downloadFileFromServer(fileUrl, songTitle) {
+        if (!fileUrl) return alert("找不到雲端下載連結。");
+        try {
+            const response = await fetch(fileUrl);
+            if (!response.ok) throw new Error("網路回應不正確");
+            const blob = await response.blob();
+            
+            const blobUrl = window.URL.createObjectURL(blob);
+            const link = document.createElement('a');
+            link.href = blobUrl;
+            link.download = songTitle + ".levelpack.json";
+            
+            document.body.appendChild(link);
+            link.click();
+            
+            document.body.removeChild(link);
+            window.URL.revokeObjectURL(blobUrl);
+        } catch (error) {
+            window.open(fileUrl, '_blank');
+        }
+    }
+
+    function changePageSize() {
+        itemsPerPage = parseInt(document.getElementById('pageSizeSelect').value, 10);
+        currentPage = 1; renderList();
+    }
+
+    function initTags() {
+        const tagsContainer = document.getElementById('filterTags');
+        const previousFilter = currentSingerFilter;
+        tagsContainer.innerHTML = '';
+        const allSpan = document.createElement('span');
+        allSpan.className = "tag " + (previousFilter === '全部' ? 'active' : '');
+        allSpan.innerText = '全部';
+        allSpan.onclick = function() { filterSinger('全部', allSpan); };
+        tagsContainer.appendChild(allSpan);
+        const singers = [...new Set(songData.map(song => song.singer).filter(Boolean))];
+        if (previousFilter !== '全部' && !singers.includes(previousFilter)) {
+            currentSingerFilter = '全部'; allSpan.classList.add('active');
+        }
+        singers.forEach(singer => {
+            const span = document.createElement('span');
+            span.className = "tag " + (currentSingerFilter === singer ? 'active' : '');
+            span.innerText = singer;
+            span.onclick = function() { filterSinger(singer, span); };
+            tagsContainer.appendChild(span);
+        });
+    }
+
+    function filterSinger(singer, element) {
+        currentSingerFilter = singer;
+        document.querySelectorAll('.tag').forEach(t => t.classList.remove('active'));
+        if (element) element.classList.add('active');
+        currentPage = 1; renderList();
+    }
+
+    function renderList() {
+        const listContainer = document.getElementById('levelList');
+        const keyword = searchBar.value.toLowerCase().trim();
+        const filteredSongs = songData.filter(song => {
+            const matchesSinger = (currentSingerFilter === "全部" || song.singer === currentSingerFilter);
+            const matchesKeyword = ((song.title || '').toLowerCase().includes(keyword) || (song.singer || '').toLowerCase().includes(keyword));
+            return matchesSinger && matchesKeyword;
+        });
+        const totalItems = filteredSongs.length;
+        const totalPages = Math.ceil(totalItems / itemsPerPage) || 1;
+        if (currentPage > totalPages) currentPage = totalPages;
+        const startIndex = (currentPage - 1) * itemsPerPage;
+        const pageSongs = filteredSongs.slice(startIndex, startIndex + itemsPerPage);
+        document.getElementById('pageInfo').innerText = "第 " + currentPage + " / " + totalPages + " 頁 (共 " + totalItems + " 筆)";
+        document.getElementById('prevPageBtn').disabled = (currentPage === 1);
+        document.getElementById('nextPageBtn').disabled = (currentPage === totalPages);
+        if (pageSongs.length === 0) {
+            listContainer.innerHTML = '<div class="no-result">暫無任何譜面，快點擊上方上傳共享吧 😭</div>';
+            document.getElementById('paginationWrapper').classList.add('hidden');
+            return;
+        }
+        document.getElementById('paginationWrapper').classList.remove('hidden');
+        
+        listContainer.innerHTML = pageSongs.map(song => `
+            <div class="level-card">
+                <div class="level-info">
+                    <div class="title">${song.title || '無歌名'}</div>
+                    <div class="singer">🎤 ${song.singer || '未知'}</div>
+                    <div class="difficulty-badges">
+                        ${(Array.isArray(song.difficulties) ? song.difficulties : ["Level Pack"]).map(d => `<span class="diff-badge">${d}</span>`).join('')}
+                    </div>
+                </div>
+                <div class="card-actions">
+                    <button class="btn" onclick="downloadFileFromServer('${song.file_url}', '${song.title.replace(/'/g, "\\'")}')">下載</button>
+                </div>
+            </div>
+        `).join('');
+    }
+
+    function changePage(direction) { currentPage += direction; renderList(); }
+    searchBar.addEventListener('input', () => { currentPage = 1; renderList(); });
+</script>
+</body>
+</html>
