@@ -237,76 +237,121 @@
         currentPage = 1; renderList();
     }
 
-    function initTags() {
-        const tagsContainer = document.getElementById('filterTags');
-        const previousFilter = currentSingerFilter;
-        tagsContainer.innerHTML = '';
-        const allSpan = document.createElement('span');
-        allSpan.className = "tag " + (previousFilter === '全部' ? 'active' : '');
-        allSpan.innerText = '全部';
-        allSpan.onclick = function() { filterSinger('全部', allSpan); };
-        tagsContainer.appendChild(allSpan);
-        const singers = [...new Set(songData.map(song => song.singer).filter(Boolean))];
-        if (previousFilter !== '全部' && !singers.includes(previousFilter)) {
-            currentSingerFilter = '全部'; allSpan.classList.add('active');
-        }
-        singers.forEach(singer => {
-            const span = document.createElement('span');
-            span.className = "tag " + (currentSingerFilter === singer ? 'active' : '');
-            span.innerText = singer;
-            span.onclick = function() { filterSinger(singer, span); };
-            tagsContainer.appendChild(span);
+    /// ==========================================
+// 🌟 1. 安全切分歌手工具函數
+// ==========================================
+function getSingerArray(singerStr) {
+    if (!singerStr || typeof singerStr !== 'string') return ["未知歌手"];
+    return singerStr.split(/\s*&\s*|\s*and\s*|、|\s*\/\s*|\s*,\s*/i)
+                    .map(s => s.trim())
+                    .filter(s => s.length > 0);
+}
+
+// ==========================================
+// 🌟 2. 完美的歌手標籤生成函數
+// ==========================================
+function initTags() {
+    const tagsContainer = document.getElementById('filterTags');
+    if (!tagsContainer) return;
+    
+    const previousFilter = currentSingerFilter;
+    tagsContainer.innerHTML = '';
+    
+    const allSpan = document.createElement('span');
+    allSpan.className = "tag " + (previousFilter === '全部' ? 'active' : '');
+    allSpan.innerText = '全部';
+    allSpan.onclick = function() { filterSinger('全部', allSpan); };
+    tagsContainer.appendChild(allSpan);
+
+    let singerSet = new Set();
+    songData.forEach(song => {
+        let splitList = getSingerArray(song.singer);
+        splitList.forEach(s => {
+            if (s) singerSet.add(s);
         });
+    });
+
+    const singers = [...singerSet].sort();
+
+    if (previousFilter !== '全部' && !singers.includes(previousFilter)) {
+        currentSingerFilter = '全部';
+        allSpan.classList.add('active');
     }
 
-    function filterSinger(singer, element) {
-        currentSingerFilter = singer;
-        document.querySelectorAll('.tag').forEach(t => t.classList.remove('active'));
-        if (element) element.classList.add('active');
-        currentPage = 1; renderList();
-    }
+    singers.forEach(singer => {
+        const span = document.createElement('span');
+        span.className = "tag " + (currentSingerFilter === singer ? 'active' : '');
+        span.innerText = singer;
+        span.onclick = function() { filterSinger(singer, span); };
+        tagsContainer.appendChild(span);
+    });
+}
 
-    function renderList() {
-        const listContainer = document.getElementById('levelList');
-        const keyword = searchBar.value.toLowerCase().trim();
-        const filteredSongs = songData.filter(song => {
-            const matchesSinger = (currentSingerFilter === "全部" || song.singer === currentSingerFilter);
-            const matchesKeyword = ((song.title || '').toLowerCase().includes(keyword) || (song.singer || '').toLowerCase().includes(keyword));
-            return matchesSinger && matchesKeyword;
-        });
-        const totalItems = filteredSongs.length;
-        const totalPages = Math.ceil(totalItems / itemsPerPage) || 1;
-        if (currentPage > totalPages) currentPage = totalPages;
-        const startIndex = (currentPage - 1) * itemsPerPage;
-        const pageSongs = filteredSongs.slice(startIndex, startIndex + itemsPerPage);
-        document.getElementById('pageInfo').innerText = "第 " + currentPage + " / " + totalPages + " 頁 (共 " + totalItems + " 筆)";
-        document.getElementById('prevPageBtn').disabled = (currentPage === 1);
-        document.getElementById('nextPageBtn').disabled = (currentPage === totalPages);
-        if (pageSongs.length === 0) {
-            listContainer.innerHTML = '<div class="no-result">暫無任何譜面，快點擊上方上傳共享吧 😭</div>';
-            document.getElementById('paginationWrapper').classList.add('hidden');
-            return;
-        }
-        document.getElementById('paginationWrapper').classList.remove('hidden');
-        
-        listContainer.innerHTML = pageSongs.map(song => `
-            <div class="level-card">
-                <div class="level-info">
-                    <div class="title">${song.title || '無歌名'}</div>
-                    <div class="singer">🎤 ${song.singer || '未知'}</div>
-                    <div class="difficulty-badges">
-                        ${(Array.isArray(song.difficulties) ? song.difficulties : ["Level Pack"]).map(d => `<span class="diff-badge">${d}</span>`).join('')}
-                    </div>
-                </div>
-                <div class="card-actions">
-                    <button class="btn" onclick="downloadFileFromServer('${song.file_url}', '${song.title.replace(/'/g, "\\'")}')">下載</button>
+function filterSinger(singer, element) {
+    currentSingerFilter = singer;
+    document.querySelectorAll('.tag').forEach(t => t.classList.remove('active'));
+    if (element) element.classList.add('active');
+    currentPage = 1; renderList();
+}
+
+// ==========================================
+// 🌟 3. 完美的清單過濾與渲染函數（含後半段所有尾巴）
+// ==========================================
+function renderList() {
+    const listContainer = document.getElementById('levelList');
+    if (!listContainer) return;
+    const keyword = searchBar.value.toLowerCase().trim();
+    
+    const filteredSongs = songData.filter(song => {
+        let songSingers = getSingerArray(song.singer);
+        const matchesSinger = (currentSingerFilter === "全部" || songSingers.includes(currentSingerFilter));
+        const cleanTitle = (song.title || '').toLowerCase();
+        const cleanSinger = (song.singer || '').toLowerCase();
+        const matchesKeyword = (cleanTitle.includes(keyword) || cleanSinger.includes(keyword));
+        return matchesSinger && matchesKeyword;
+    });
+
+    const totalItems = filteredSongs.length;
+    const totalPages = Math.ceil(totalItems / itemsPerPage) || 1;
+    if (currentPage > totalPages) currentPage = totalPages;
+    const startIndex = (currentPage - 1) * itemsPerPage;
+    const pageSongs = filteredSongs.slice(startIndex, startIndex + itemsPerPage);
+    
+    const pageInfoEl = document.getElementById('pageInfo');
+    if (pageInfoEl) pageInfoEl.innerText = "第 " + currentPage + " / " + totalPages + " 頁 (共 " + totalItems + " 筆)";
+    
+    const prevBtn = document.getElementById('prevPageBtn');
+    const nextBtn = document.getElementById('nextPageBtn');
+    if (prevBtn) prevBtn.disabled = (currentPage === 1);
+    if (nextBtn) nextBtn.disabled = (currentPage === totalPages);
+    
+    if (pageSongs.length === 0) {
+        listContainer.innerHTML = '<div class="no-result">暫無任何譜面，快點擊上方上傳共享吧 😭</div>';
+        const pagWrapper = document.getElementById('paginationWrapper');
+        if (pagWrapper) pagWrapper.classList.add('hidden');
+        return;
+    }
+    const pagWrapper = document.getElementById('paginationWrapper');
+    if (pagWrapper) pagWrapper.classList.remove('hidden');
+    
+    listContainer.innerHTML = pageSongs.map(song => `
+        <div class="level-card">
+            <div class="level-info">
+                <div class="title">${song.title || '無歌名'}</div>
+                <div class="singer">🎤 ${song.singer || '未知歌手'}</div>
+                <div class="difficulty-badges">
+                    ${(Array.isArray(song.difficulties) ? song.difficulties : ["Level Pack"]).map(d => `<span class="diff-badge">${d}</span>`).join('')}
                 </div>
             </div>
-        `).join('');
-    }
+            <div class="card-actions">
+                <button class="btn" onclick="downloadFileFromServer('${song.file_url}', '${(song.title || '譜面').replace(/'/g, "\\'")}')">下載</button>
+            </div>
+        </div>
+    `).join('');
+}
 
-    function changePage(direction) { currentPage += direction; renderList(); }
-    searchBar.addEventListener('input', () => { currentPage = 1; renderList(); });
+function changePage(direction) { currentPage += direction; renderList(); }
+searchBar.addEventListener('input', () => { currentPage = 1; renderList(); });
 </script>
 </body>
 </html>
