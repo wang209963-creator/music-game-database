@@ -156,7 +156,9 @@
                 diffs = diffs.map(d => String(d).trim());
 
                 const uniqueId = Date.now();
-                const cloudFileName = `${uniqueId}_${file.name}`;
+               // 自動把檔名中的中文與特殊符號轉碼，防止 Supabase Storage 報 Invalid key 錯誤
+const safeFileName = encodeURIComponent(file.name).replace(/%/g, '_');
+const cloudFileName = `${uniqueId}_${safeFileName}`;
 
                 // 1. 上傳至 Storage
                 const { data: storageData, error: storageError } = await window.mySupabase
