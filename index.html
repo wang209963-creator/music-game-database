@@ -203,7 +203,7 @@
                 } catch (error) {
                     alert("上傳失敗，請確認儲存桶 (Storage) 的 RLS 政策已開：\n" + error.message);
                     console.error(error);
-                } finaly {
+                } finally {
                     document.getElementById('uploadArea').style.display = 'block';
                     document.getElementById('uploadLoading').style.display = 'none';
                     document.getElementById('fileInput').value = ''; 
