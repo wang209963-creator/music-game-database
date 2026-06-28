@@ -86,11 +86,13 @@
 </div>
 
 <script>
-    // ====== 🔗 SUPABASE 雲端連線設定（保證全檔僅此一處宣告） ======
+    // ====== 🔗 SUPABASE 雲端連線設定（改名為 mySupabase 徹底防衝突） ======
     const SUPABASE_URL = "https://yoxoxtfagcjhvapplfdv.supabase.co"; 
     const SUPABASE_KEY = "sb_publishable_xw0x699BFyePMlWJm71Mlg_KTHM6uAU";
-    const supabase = supabase.createClient(SUPABASE_URL, SUPABASE_KEY);
-    // ========================================================
+    
+    // 這裡使用 window 作用域，保證全世界只有一個實例
+    window.mySupabase = supabase.createClient(SUPABASE_URL, SUPABASE_KEY);
+    // ==================================================================
 
     let songData = [];
     let currentSingerFilter = "全部";
@@ -103,10 +105,9 @@
         loadSongsFromCloud();
     };
 
-    // 從雲端載入歌曲清單
     async function loadSongsFromCloud() {
         try {
-            let { data, error } = await supabase
+            let { data, error } = await window.mySupabase
                 .from('songs')
                 .select('*')
                 .order('id', { ascending: false });
@@ -121,13 +122,11 @@
         }
     }
 
-    // 處理大檔案上傳
     function handleFileUpload(event) {
         const file = event.target.files[0];
         if (!file) return;
 
-        // 顯示上傳中 UI
-        document.getElementById('uploadArea').style.style.setProperty('display', 'none', 'important');
+        document.getElementById('uploadArea').style.setProperty('display', 'none', 'important');
         document.getElementById('uploadLoading').style.display = 'block';
 
         const reader = new FileReader();
@@ -159,8 +158,8 @@
                 const uniqueId = Date.now();
                 const cloudFileName = `${uniqueId}_${file.name}`;
 
-                // 1. 先上傳到 Storage 儲存桶
-                const { data: storageData, error: storageError } = await supabase
+                // 1. 上傳至 Storage
+                const { data: storageData, error: storageError } = await window.mySupabase
                     .storage
                     .from('levelpacks')
                     .upload(cloudFileName, file, {
@@ -170,15 +169,15 @@
 
                 if (storageError) throw storageError;
 
-                // 2. 獲取公開下載網址
-                const { data: urlData } = supabase
+                // 2. 獲取網址
+                const { data: urlData } = window.mySupabase
                     .storage
                     .from('levelpacks')
                     .getPublicUrl(cloudFileName);
 
                 const publicUrl = urlData.publicUrl;
 
-                // 3. 寫入資料表
+                // 3. 寫入 Database
                 const newSong = {
                     id: uniqueId,
                     title: songTitle,
@@ -187,7 +186,7 @@
                     file_url: publicUrl 
                 };
 
-                let { error: dbError } = await supabase
+                let { error: dbError } = await window.mySupabase
                     .from('songs')
                     .insert([newSong]);
 
@@ -200,7 +199,6 @@
                 alert("上傳失敗，詳細錯誤請見 F12 Console：" + error.message);
                 console.error("上傳過程出錯:", error);
             } finally {
-                // 恢復 UI 狀態
                 document.getElementById('uploadArea').style.display = 'block';
                 document.getElementById('uploadLoading').style.display = 'none';
                 document.getElementById('fileInput').value = ''; 
@@ -209,7 +207,6 @@
         reader.readAsText(file);
     }
 
-    // 觸發下載
     function triggerDownload(fileUrl) {
         if (!fileUrl) return alert("找不到雲端下載連結。");
         const link = document.createElement('a');
@@ -220,7 +217,6 @@
         document.body.removeChild(link);
     }
 
-    // UI 控制邏輯
     function changePageSize() {
         itemsPerPage = parseInt(document.getElementById('pageSizeSelect').value, 10);
         currentPage = 1; renderList();
