@@ -153,8 +153,11 @@
             if (diffs.length === 0) diffs = ["Level Pack"];
             diffs = diffs.map(d => String(d).trim());
 
-            const uniqueId = Date.now();
-            const cloudFileName = uniqueId + "_levelpack.json";
+            // 🌟 改善管理員後台體驗：保留時間戳防重複，但加上乾淨的中文/英文歌名
+const uniqueId = Date.now();
+// 把歌名中不適合當成網址或檔名的特殊字元（如空格、斜線、問號等）過濾掉
+const safeTitle = songTitle.replace(/[\/\?<>\\:\*\|":\s]/g, "_");
+const cloudFileName = uniqueId + "_" + safeTitle + ".json";
 
             const bufferReader = new FileReader();
             bufferReader.onload = async function(bufEvent) {
