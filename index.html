@@ -277,6 +277,179 @@
         });
     }
 
+<script>
+    // ====== 🔗 SUPABASE ======
+    const SUPABASE_URL = "https://yoxoxtfagcjhvappldfv.supabase.co"; 
+    const SUPABASE_KEY = "sb_publishable_xw0x699BFyePMlWjm71Mlg_KTHM6uAU";
+    
+    window.mySupabase = supabase.createClient(SUPABASE_URL, SUPABASE_KEY);
+    // =========================
+
+    let songData = [];
+    let currentSingerFilter = "全部";
+    let currentPage = 1;
+    let itemsPerPage = 10;
+
+    const searchBar = document.getElementById('searchBar');
+
+    window.onload = function() {
+        loadSongsFromCloud();
+    };
+
+    async function loadSongsFromCloud() {
+        try {
+            let { data, error } = await window.mySupabase
+                .from('songs')
+                .select('*')
+                .order('id', { ascending: false });
+
+            if (error) throw error;
+
+            songData = data || [];
+            initTags();
+            renderList();
+        } catch (err) {
+            console.error(err);
+        }
+    }
+
+    function handleFileUpload(event) {
+        const file = event.target.files[0];
+        if (!file) return;
+
+        document.getElementById('uploadArea').style.setProperty('display', 'none', 'important');
+        document.getElementById('uploadLoading').style.display = 'block';
+
+        const textReader = new FileReader();
+        textReader.onload = function(e) {
+            const rawText = e.target.result;
+            let jsonContent = {};
+            try { jsonContent = JSON.parse(rawText); } catch(pErr) {}
+            
+            const cleanFileName = file.name
+                .replace(".levelpack.json", "")
+                .replace(".json", "")
+                .replace(".levelpack", "");
+
+            let songTitle = jsonContent.name || jsonContent.title || jsonContent.musicName || jsonContent.songName || cleanFileName;
+            let songSinger = jsonContent.singer || jsonContent.artist || jsonContent.author || jsonContent.authorName || jsonContent.musicAuthor || "未知歌手";
+            let diffs = [];
+
+            if (jsonContent.charts && typeof jsonContent.charts === 'object') {
+                diffs = Object.keys(jsonContent.charts);
+            } else if (jsonContent.difficulty && typeof jsonContent.difficulty === 'object') {
+                diffs = Object.keys(jsonContent.difficulty);
+            } else if (Array.isArray(jsonContent.difficulties)) {
+                diffs = jsonContent.difficulties;
+            }
+            if (diffs.length === 0) diffs = ["Level Pack"];
+            diffs = diffs.map(d => String(d).trim());
+
+            const uniqueId = Date.now();
+            const cloudFileName = uniqueId + "_levelpack.json";
+
+            const bufferReader = new FileReader();
+            bufferReader.onload = async function(bufEvent) {
+                try {
+                    const arrayBuffer = bufEvent.target.result;
+                    const pureBlob = new Blob([arrayBuffer], { type: 'application/json' });
+
+                    const { data: storageData, error: storageError } = await window.mySupabase
+                        .storage
+                        .from('levelpacks')
+                        .upload(cloudFileName, pureBlob, {
+                            cacheControl: '3600',
+                            upsert: false
+                        });
+
+                    if (storageError) throw storageError;
+
+                    const { data: urlData } = window.mySupabase
+                        .storage
+                        .from('levelpacks')
+                        .getPublicUrl(cloudFileName);
+
+                    const publicUrl = urlData.publicUrl;
+
+                    const newSong = {
+                        id: uniqueId,
+                        title: songTitle,
+                        singer: songSinger,
+                        difficulties: diffs,
+                        file_url: publicUrl 
+                    };
+
+                    let { error: dbError } = await window.mySupabase
+                        .from('songs')
+                        .insert([newSong]);
+
+                    if (dbError) throw dbError;
+
+                    alert("🎉 譜面成功同步至雲端中心！");
+                    loadSongsFromCloud();
+
+                } catch (error) {
+                    alert("Error: " + error.message);
+                } finally {
+                    document.getElementById('uploadArea').style.display = 'block';
+                    document.getElementById('uploadLoading').style.display = 'none';
+                    document.getElementById('fileInput').value = ''; 
+                }
+            };
+            bufferReader.readAsArrayBuffer(file);
+        };
+        textReader.readAsText(file);
+    }
+
+    async function downloadFileFromServer(fileUrl, songTitle) {
+        if (!fileUrl) return alert("No URL found.");
+        try {
+            const response = await fetch(fileUrl);
+            if (!response.ok) throw new Error("Network error");
+            const blob = await response.blob();
+            
+            const blobUrl = window.URL.createObjectURL(blob);
+            const link = document.createElement('a');
+            link.href = blobUrl;
+            link.download = songTitle + ".levelpack.json";
+            
+            document.body.appendChild(link);
+            link.click();
+            
+            document.body.removeChild(link);
+            window.URL.revokeObjectURL(blobUrl);
+        } catch (error) {
+            window.open(fileUrl, '_blank');
+        }
+    }
+
+    function changePageSize() {
+        itemsPerPage = parseInt(document.getElementById('pageSizeSelect').value, 10);
+        currentPage = 1; renderList();
+    }
+
+    function initTags() {
+        const tagsContainer = document.getElementById('filterTags');
+        const previousFilter = currentSingerFilter;
+        tagsContainer.innerHTML = '';
+        const allSpan = document.createElement('span');
+        allSpan.className = "tag " + (previousFilter === '全部' ? 'active' : '');
+        allSpan.innerText = '全部';
+        allSpan.onclick = function() { filterSinger('全部', allSpan); };
+        tagsContainer.appendChild(allSpan);
+        const singers = [...new Set(songData.map(song => song.singer).filter(Boolean))];
+        if (previousFilter !== '全部' && !singers.includes(previousFilter)) {
+            currentSingerFilter = '全部'; allSpan.classList.add('active');
+        }
+        singers.forEach(singer => {
+            const span = document.createElement('span');
+            span.className = "tag " + (currentSingerFilter === singer ? 'active' : '');
+            span.innerText = singer;
+            span.onclick = function() { filterSinger(singer, span); };
+            tagsContainer.appendChild(span);
+        });
+    }
+
     function filterSinger(singer, element) {
         currentSingerFilter = singer;
         document.querySelectorAll('.tag').forEach(t => t.classList.remove('active'));
@@ -297,7 +470,7 @@
         if (currentPage > totalPages) currentPage = totalPages;
         const startIndex = (currentPage - 1) * itemsPerPage;
         const pageSongs = filteredSongs.slice(startIndex, startIndex + itemsPerPage);
-        document.getElementById('pageInfo').innerText = `第 ${currentPage} / ${totalPages} 頁 (共 ${totalItems} 筆)`;
+        document.getElementById('pageInfo').innerText = "第 " + currentPage + " / " + totalPages + " 頁 (共 " + totalItems + " 筆)";
         document.getElementById('prevPageBtn').disabled = (currentPage === 1);
         document.getElementById('nextPageBtn').disabled = (currentPage === totalPages);
         if (pageSongs.length === 0) {
