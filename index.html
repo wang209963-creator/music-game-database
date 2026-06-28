@@ -164,13 +164,16 @@
                 const cloudFileName = `${uniqueId}_levelpack.json`;
 
                 // 1. 上傳原始檔案至 Storage 儲存桶
-                const { data: storageData, error: storageError } = await window.mySupabase
-                    .storage
-                    .from('levelpacks')
-                    .upload(cloudFileName, file, {
-                        cacheControl: '3600',
-                        upsert: false
-                    });
+                // 🌟 核心修正：將原本的檔案內容，重新包裝成一個「檔名完全是純英文」的新檔案物件，徹底解決 Headers 編碼報錯
+const cleanFileBlob = new File([file], cloudFileName, { type: file.type });
+
+const { data: storageData, error: storageError } = await window.mySupabase
+    .storage
+    .from('levelpacks')
+    .upload(cloudFileName, cleanFileBlob, {
+        cacheControl: '3600',
+        upsert: false
+    });
 
                 if (storageError) throw storageError;
 
