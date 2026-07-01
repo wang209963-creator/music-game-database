@@ -1,0 +1,847 @@
+<!DOCTYPE html>
+<html lang="zh-TW">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>線上音遊譜面下載中心</title>
+    <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+    <style>
+        body { font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif; background: #f0f2f5; margin: 0; padding: 20px; color: #333; }
+        .header-bar { display: flex; justify-content: center; align-items: center; max-width: 650px; margin: 0 auto 10px auto; }
+        h1 { margin: 0; color: #1a1a1a; font-size: 24px; text-align: center; }
+        .container { max-width: 650px; margin: 0 auto; }
+        .upload-panel { background: white; padding: 20px; border-radius: 10px; box-shadow: 0 2px 8px rgba(0,0,0,0.06); margin-bottom: 20px; }
+        .upload-area { border: 2px dashed #0070f3; background: #f0f7ff; padding: 20px; text-align: center; border-radius: 8px; cursor: pointer; transition: 0.2s; }
+        .upload-area:hover { background: #e1f0ff; }
+        .upload-area p { margin: 0; color: #0070f3; font-weight: bold; }
+        .upload-loading { display: none; text-align: center; color: #ff9800; font-weight: bold; padding: 10px; }
+        #fileInput { display: none; }
+        .search-box { width: 100%; padding: 12px; border: 2px solid #ddd; border-radius: 8px; font-size: 16px; box-sizing: border-box; margin-bottom: 15px; outline: none; transition: 0.3s; }
+        .search-box:focus { border-color: #0070f3; }
+
+        /* 🌟 使用者列 */
+        .user-bar { max-width: 650px; margin: 0 auto 18px auto; display: flex; justify-content: flex-end; align-items: center; gap: 8px; flex-wrap: wrap; }
+        .user-name { font-weight: bold; color: #1a1a1a; margin-right: 4px; }
+
+        /* 🌟 歌手標籤收納盒樣式表 */
+        .singer-filter-wrapper { margin-bottom: 25px; text-align: left; }
+        .singer-toggle-btn { background: #fff; color: #444; border: 1px solid #ccc; padding: 8px 16px; border-radius: 6px; font-weight: bold; font-size: 14px; cursor: pointer; transition: 0.2s; }
+        .singer-toggle-btn:hover { background: #f2f2f2; border-color: #999; }
+        .singer-container-box { background: white; border: 1px solid #e1e4e8; border-radius: 8px; padding: 15px; margin-top: 10px; box-shadow: 0 4px 12px rgba(0,0,0,0.05); }
+        .tag-search-box { width: 100%; padding: 8px 12px; margin-bottom: 12px; border: 1px solid #ccc; border-radius: 6px; font-size: 14px; box-sizing: border-box; outline: none; transition: 0.2s; }
+        .tag-search-box:focus { border-color: #0070f3; }
+        .filter-tags { display: flex; gap: 8px; flex-wrap: wrap; max-height: 180px; overflow-y: auto; padding-right: 5px; }
+
+        .tag { background: #e4e6eb; padding: 6px 12px; border-radius: 20px; font-size: 14px; cursor: pointer; user-select: none; }
+        .tag.active { background: #0070f3; color: white; }
+        .level-list { display: flex; flex-direction: column; gap: 12px; }
+        .level-card { background: white; padding: 16px; border-radius: 10px; box-shadow: 0 2px 8px rgba(0,0,0,0.06); display: flex; justify-content: space-between; align-items: center; }
+        .level-info { flex: 1; min-width: 0; padding-right: 10px; }
+        .level-info .title { font-size: 18px; font-weight: bold; margin-bottom: 4px; color: #1a1a1a; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+        .level-info .singer { color: #666; font-size: 14px; margin-bottom: 6px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+        .difficulty-badges { display: flex; gap: 4px; flex-wrap: wrap; }
+        .diff-badge { background: #e8f4ff; color: #0070f3; font-size: 11px; padding: 2px 6px; border-radius: 4px; font-weight: bold; border: 1px solid #b3d7ff; }
+        .card-actions { display: flex; gap: 8px; align-items: center; flex-shrink: 0; flex-wrap: wrap; justify-content: flex-end; }
+        .btn { background: #0070f3; color: white; border: none; padding: 10px 16px; border-radius: 6px; font-weight: bold; font-size: 14px; cursor: pointer; text-decoration: none; transition: 0.2s; }
+        .btn:hover { background: #0051cb; }
+        .btn-secondary { background: #666; font-size: 12px; padding: 4px 8px; }
+        .btn-secondary:disabled { background: #ccc; cursor: not-allowed; }
+        .btn-danger { background: #ff3b30 !important; }
+        .btn-danger:hover { background: #d92c22 !important; }
+        .no-result { text-align: center; color: #999; margin-top: 20px; }
+        .pagination-container { display: flex; flex-direction: column; align-items: center; gap: 10px; margin-top: 25px; }
+        .pagination { display: flex; justify-content: center; align-items: center; gap: 15px; }
+        .page-info { font-size: 14px; color: #666; font-weight: bold; }
+        .page-info .current { color: #0070f3; }
+        .page-size-selector { font-size: 13px; color: #555; }
+        .page-size-selector select { padding: 4px 8px; border-radius: 4px; border: 1px solid #ddd; margin-left: 4px; cursor: pointer; }
+        .hidden { display: none !important; }
+        .version-meta { font-size: 12px; color: #888; margin-top: 4px; }
+
+        /* 🌟 彈窗共用樣式 */
+        .modal-overlay { position: fixed; inset: 0; background: rgba(0,0,0,0.5); display: flex; align-items: center; justify-content: center; z-index: 1000; padding: 20px; box-sizing: border-box; }
+        .modal-box { background: #fff; border-radius: 10px; padding: 24px; max-width: 400px; width: 100%; max-height: 85vh; overflow-y: auto; position: relative; }
+        .modal-box.wide { max-width: 550px; }
+        .modal-close { position: absolute; top: 10px; right: 12px; background: none; border: none; font-size: 20px; cursor: pointer; color: #999; line-height: 1; }
+        .modal-close:hover { color: #333; }
+
+        .auth-tabs { display: flex; gap: 8px; margin-bottom: 16px; }
+        .auth-tab-btn { flex: 1; padding: 8px; border: 1px solid #ddd; background: #f7f7f7; border-radius: 6px; cursor: pointer; font-weight: bold; color: #666; }
+        .auth-tab-btn.active { background: #0070f3; color: #fff; border-color: #0070f3; }
+        .form-group { margin-bottom: 12px; }
+        .form-group label { display: block; font-size: 13px; color: #555; margin-bottom: 4px; font-weight: bold; }
+        .form-group input { width: 100%; padding: 10px; border: 1px solid #ddd; border-radius: 6px; box-sizing: border-box; font-size: 14px; }
+        .auth-error { color: #ff3333; font-size: 13px; margin-bottom: 10px; min-height: 16px; }
+        .btn-block { width: 100%; margin-top: 6px; box-sizing: border-box; }
+        .btn-google { background: #fff; color: #444; border: 1px solid #ddd; }
+        .btn-google:hover { background: #f5f5f5; }
+        .divider { text-align: center; color: #999; font-size: 12px; margin: 16px 0; position: relative; }
+        .divider::before, .divider::after { content: ''; position: absolute; top: 50%; width: 40%; height: 1px; background: #eee; }
+        .divider::before { left: 0; } .divider::after { right: 0; }
+
+        .version-item { display: flex; justify-content: space-between; align-items: center; padding: 10px 0; border-bottom: 1px solid #eee; gap: 10px; flex-wrap: wrap; }
+        .version-item:last-child { border-bottom: none; }
+        .version-main { flex: 1; min-width: 150px; }
+        .version-uploader { font-weight: bold; font-size: 14px; }
+        .version-date { font-size: 11px; color: #999; margin-bottom: 4px; }
+        .version-actions { display: flex; gap: 6px; flex-shrink: 0; }
+
+        @media (max-width: 480px) {
+            .level-card { flex-direction: column; align-items: flex-start; gap: 12px; }
+            .card-actions { width: 100%; justify-content: flex-end; }
+        }
+    </style>
+</head>
+<body>
+
+<div class="header-bar">
+    <h1>🎵 線上譜面下載中心</h1>
+</div>
+
+<div id="userBar" class="user-bar"></div>
+
+<div class="container">
+    <div class="upload-panel">
+        <div id="uploadArea" class="upload-area" onclick="document.getElementById('fileInput').click()">
+            <p>點擊此處選擇並上傳譜面檔案</p>
+            <span style="font-size: 12px; color: #666;">支援帶影片的 .levelpack 大型檔案</span>
+            <input type="file" id="fileInput" accept=".json" onchange="handleFileUpload(event)">
+        </div>
+        <div id="uploadLoading" class="upload-loading">⏳ 大檔案雲端同步中，請勿關閉網頁...</div>
+    </div>
+
+    <input type="text" id="searchBar" name="song_search_field" class="search-box" placeholder="🔍 輸入歌名或歌手進行大清單搜尋..." autocomplete="off" autocorrect="off" autocapitalize="off" spellcheck="false">
+
+    <div class="singer-filter-wrapper">
+        <button type="button" class="singer-toggle-btn" onclick="toggleSingerBox()">🔍 按歌手快速篩選標籤...</button>
+        <div id="singerContainerBox" class="singer-container-box hidden">
+            <input type="text" id="tagSearchInput" name="singer_search_field" class="tag-search-box" placeholder="🎯 輸入歌手名稱...過濾下方標籤" oninput="filterActualTags()" autocomplete="off" autocorrect="off" autocapitalize="off" spellcheck="false">
+            <div id="filterTags" class="filter-tags"></div>
+        </div>
+    </div>
+
+    <div id="levelList" class="level-list"></div>
+
+    <div id="paginationWrapper" class="pagination-container">
+        <div class="pagination">
+            <button id="prevPageBtn" class="btn btn-secondary" style="font-size:14px; padding:8px 14px;" onclick="changePage(-1)">上一頁</button>
+            <span id="pageInfo" class="page-info">第 1 / 1 頁</span>
+            <button id="nextPageBtn" class="btn btn-secondary" style="font-size:14px; padding:8px 14px;" onclick="changePage(1)">下一頁</button>
+        </div>
+        <div class="page-size-selector">
+            顯示筆數：
+            <select id="pageSizeSelect" onchange="changePageSize()">
+                <option value="10" selected>10 筆</option>
+                <option value="20">20 筆</option>
+                <option value="40">40 筆</option>
+                <option value="100">100 筆</option>
+            </select>
+        </div>
+    </div>
+</div>
+
+<!-- 🌟 登入 / 註冊 彈窗 -->
+<div id="authModal" class="modal-overlay hidden">
+    <div class="modal-box">
+        <button class="modal-close" onclick="closeAuthModal()">✕</button>
+        <div class="auth-tabs">
+            <button id="tabLoginBtn" class="auth-tab-btn active" onclick="switchAuthTab('login')">登入</button>
+            <button id="tabRegisterBtn" class="auth-tab-btn" onclick="switchAuthTab('register')">註冊</button>
+        </div>
+        <div id="authError" class="auth-error"></div>
+
+        <form id="loginForm" onsubmit="return false;">
+            <div class="form-group">
+                <label>帳號</label>
+                <input type="text" id="loginAccount" name="loginAccount" placeholder="請輸入帳號" autocomplete="username">
+            </div>
+            <div class="form-group">
+                <label>密碼</label>
+                <input type="password" id="loginPassword" name="loginPassword" placeholder="請輸入密碼" autocomplete="current-password">
+            </div>
+            <button type="submit" class="btn btn-block" onclick="doLogin()">登入</button>
+            <div class="divider">或</div>
+            <button type="button" class="btn btn-block btn-google" onclick="doGoogleLogin()">🔵 使用 Google 帳號登入</button>
+        </form>
+
+        <form id="registerForm" class="hidden" onsubmit="return false;">
+            <div class="form-group">
+                <label>顯示名字</label>
+                <input type="text" id="regDisplayName" name="regDisplayName" placeholder="其他人會看到的名字" autocomplete="nickname">
+            </div>
+            <div class="form-group">
+                <label>帳號</label>
+                <input type="text" id="regAccount" name="regAccount" placeholder="3-20 個英數字/底線" autocomplete="username">
+            </div>
+            <div class="form-group">
+                <label>密碼</label>
+                <input type="password" id="regPassword" name="regPassword" placeholder="至少 6 個字元" autocomplete="new-password">
+            </div>
+            <button type="submit" class="btn btn-block" onclick="doRegister()">註冊</button>
+        </form>
+    </div>
+</div>
+
+<!-- 🌟 版本清單彈窗 -->
+<div id="versionModal" class="modal-overlay hidden">
+    <div class="modal-box wide">
+        <button class="modal-close" onclick="closeVersionModal()">✕</button>
+        <h3 id="versionModalTitle" style="margin-top:0; padding-right:20px;"></h3>
+        <div id="versionList"></div>
+    </div>
+</div>
+
+<script>
+    const SUPABASE_URL = "https://ajrzfconrxvqnkjtrzeg.supabase.co";
+    const SUPABASE_KEY = "sb_publishable_H4HdOMcxVi1RoqRVzwdgUw_ijbJATF-";
+
+    window.mySupabase = supabase.createClient(SUPABASE_URL, SUPABASE_KEY);
+
+    // 帳號系統用：把使用者輸入的「帳號」轉成 Supabase Auth 需要的假 email 格式
+    const EMAIL_DOMAIN = "@levelpack.local";
+
+    let songData = [];      // 所有版本（扁平清單，來自 songs 資料表）
+    let songGroups = [];    // 依「歌名+歌手」分組後的清單，畫面主要用這個
+    let currentSingerFilter = "全部";
+    let currentPage = 1;
+    let itemsPerPage = 10;
+
+    let currentUser = null;     // Supabase auth 使用者物件
+    let currentProfile = null;  // { id, display_name }
+
+    const searchBar = document.getElementById('searchBar');
+
+    window.onload = function() {
+        reportAuthRedirectError();
+        initAuth();
+        loadSongsFromCloud();
+    };
+
+    // Google 登入 / 綁定完成後，Supabase 會把成功或失敗結果帶回網址列
+    // (例如 ?error=...&error_description=... 或 #error=...&error_description=...)
+    // 之前這段訊息完全沒被讀取，所以失敗時畫面上什麼都看不到。這裡把它攔截並顯示出來。
+    function reportAuthRedirectError() {
+        const hash = window.location.hash ? window.location.hash.substring(1) : '';
+        const search = window.location.search ? window.location.search.substring(1) : '';
+        const hashParams = new URLSearchParams(hash);
+        const searchParams = new URLSearchParams(search);
+
+        const error = hashParams.get('error') || searchParams.get('error');
+        const errorCode = hashParams.get('error_code') || searchParams.get('error_code');
+        const errorDescription = hashParams.get('error_description') || searchParams.get('error_description');
+
+        if (error) {
+            alert(
+                "⚠️ Google 登入 / 綁定失敗\n\n" +
+                "錯誤代碼：" + (errorCode || error) + "\n" +
+                "原因：" + (errorDescription ? decodeURIComponent(errorDescription.replace(/\+/g, ' ')) : "（無詳細說明）")
+            );
+        }
+
+        // 清掉網址列殘留的參數，避免重新整理時又觸發一次、或污染下次的 redirectTo
+        if (error) {
+            const cleanUrl = window.location.origin + window.location.pathname;
+            window.history.replaceState({}, document.title, cleanUrl);
+        }
+    }
+
+    /* ============================================================
+       帳號系統
+    ============================================================ */
+
+    function accountToEmail(account) {
+        return account.trim().toLowerCase() + EMAIL_DOMAIN;
+    }
+
+    async function initAuth() {
+        // 監聽登入狀態改變（包含一般登入、註冊、Google OAuth 導回本頁、綁定完成）
+        window.mySupabase.auth.onAuthStateChange(async (_event, session) => {
+            if (session) {
+                currentUser = await refreshCurrentUser();
+                await ensureProfile();
+            } else {
+                currentUser = null;
+                currentProfile = null;
+            }
+            renderUserBar();
+            renderList();
+        });
+
+        const { data: { session } } = await window.mySupabase.auth.getSession();
+        if (session) {
+            currentUser = await refreshCurrentUser();
+            await ensureProfile();
+        }
+        renderUserBar();
+    }
+
+    // 強制向 Supabase 伺服器要一份最新的使用者資料（避免綁定 Google 後畫面還是顯示舊狀態）
+    async function refreshCurrentUser() {
+        const { data, error } = await window.mySupabase.auth.getUser();
+        if (error || !data || !data.user) return null;
+        return data.user;
+    }
+
+    // 確保目前登入者在 profiles 資料表裡有一筆資料（存顯示名稱）
+    async function ensureProfile() {
+        if (!currentUser) return;
+        const { data, error } = await window.mySupabase
+            .from('profiles')
+            .select('*')
+            .eq('id', currentUser.id)
+            .maybeSingle();
+
+        if (error) { console.error("讀取個人資料失敗:", error); return; }
+
+        if (data) {
+            currentProfile = data;
+            return;
+        }
+
+        // 第一次用 Google 登入、還沒有 profile 時，用 Google 資料當預設顯示名稱
+        const fallbackName =
+            currentUser.user_metadata?.display_name ||
+            currentUser.user_metadata?.full_name ||
+            currentUser.user_metadata?.name ||
+            (currentUser.email || "使用者").split('@')[0];
+
+        const { data: created, error: insertErr } = await window.mySupabase
+            .from('profiles')
+            .insert([{ id: currentUser.id, display_name: fallbackName }])
+            .select()
+            .maybeSingle();
+
+        if (!insertErr) currentProfile = created;
+    }
+
+    function renderUserBar() {
+        const bar = document.getElementById('userBar');
+        if (!bar) return;
+
+        if (currentUser) {
+            const name = currentProfile ? currentProfile.display_name : "使用者";
+            const hasGoogle = (currentUser.identities || []).some(i => i.provider === 'google');
+            bar.innerHTML = `
+                <span class="user-name">👤 ${escapeHtml(name)}</span>
+                <button class="btn btn-secondary" onclick="openEditNameModal()">改名</button>
+                ${hasGoogle ? '' : '<button class="btn btn-secondary" onclick="doGoogleLink()">🔗 綁定 Google</button>'}
+                <button class="btn btn-secondary" onclick="doLogout()">登出</button>
+            `;
+        } else {
+            bar.innerHTML = `<button class="btn" onclick="openAuthModal('login')">登入 / 註冊</button>`;
+        }
+    }
+
+    function openAuthModal(tab) {
+        document.getElementById('authModal').classList.remove('hidden');
+        document.getElementById('authError').innerText = '';
+        switchAuthTab(tab || 'login');
+    }
+    function closeAuthModal() {
+        document.getElementById('authModal').classList.add('hidden');
+    }
+    function switchAuthTab(tab) {
+        document.getElementById('loginForm').classList.toggle('hidden', tab !== 'login');
+        document.getElementById('registerForm').classList.toggle('hidden', tab !== 'register');
+        document.getElementById('tabLoginBtn').classList.toggle('active', tab === 'login');
+        document.getElementById('tabRegisterBtn').classList.toggle('active', tab === 'register');
+        document.getElementById('authError').innerText = '';
+    }
+
+    async function doRegister() {
+        const displayName = document.getElementById('regDisplayName').value.trim();
+        const account = document.getElementById('regAccount').value.trim();
+        const password = document.getElementById('regPassword').value;
+        const errEl = document.getElementById('authError');
+        errEl.innerText = '';
+
+        if (!displayName || !account || !password) {
+            errEl.innerText = "請完整填寫顯示名字、帳號與密碼"; return;
+        }
+        if (!/^[a-zA-Z0-9_.]{3,20}$/.test(account)) {
+            errEl.innerText = "帳號請使用 3-20 個英數字、底線或點"; return;
+        }
+        if (password.length < 6) {
+            errEl.innerText = "密碼至少需要 6 個字元"; return;
+        }
+
+        const { data, error } = await window.mySupabase.auth.signUp({
+            email: accountToEmail(account),
+            password,
+            options: { data: { display_name: displayName } }
+        });
+
+        if (error) {
+            if (String(error.message).toLowerCase().includes('already')) {
+                errEl.innerText = "這個帳號已經被註冊過了";
+            } else {
+                errEl.innerText = "註冊失敗：" + error.message;
+            }
+            return;
+        }
+
+        if (data.user) {
+            await window.mySupabase.from('profiles').insert([{ id: data.user.id, display_name: displayName }]);
+        }
+
+        if (data.session) {
+            alert("🎉 註冊成功，已自動登入！");
+            closeAuthModal();
+        } else {
+            alert("🎉 註冊成功，請登入！");
+            switchAuthTab('login');
+        }
+    }
+
+    async function doLogin() {
+        const account = document.getElementById('loginAccount').value.trim();
+        const password = document.getElementById('loginPassword').value;
+        const errEl = document.getElementById('authError');
+        errEl.innerText = '';
+
+        if (!account || !password) { errEl.innerText = "請輸入帳號與密碼"; return; }
+
+        const { error } = await window.mySupabase.auth.signInWithPassword({
+            email: accountToEmail(account),
+            password
+        });
+
+        if (error) { errEl.innerText = "登入失敗：帳號或密碼錯誤"; return; }
+        closeAuthModal();
+    }
+
+    async function doLogout() {
+        await window.mySupabase.auth.signOut();
+    }
+
+    async function doGoogleLogin() {
+        await window.mySupabase.auth.signInWithOAuth({
+            provider: 'google',
+            options: { redirectTo: window.location.href }
+        });
+    }
+
+    // 把 Google 帳號「綁定」到目前已登入的帳號上（需先登入）
+    async function doGoogleLink() {
+        try {
+            const { error } = await window.mySupabase.auth.linkIdentity({
+                provider: 'google',
+                options: { redirectTo: window.location.href }
+            });
+            if (error) alert("綁定失敗：" + error.message);
+        } catch (e) {
+            alert("綁定失敗，請確認 Supabase 後台已開啟 Google 登入與「Manual Linking」設定：" + e.message);
+        }
+    }
+
+    function openEditNameModal() {
+        const name = prompt("請輸入新的顯示名稱：", currentProfile ? currentProfile.display_name : "");
+        if (name && name.trim()) updateDisplayName(name.trim());
+    }
+
+    async function updateDisplayName(name) {
+        if (!currentUser) return;
+        const { error } = await window.mySupabase
+            .from('profiles')
+            .update({ display_name: name })
+            .eq('id', currentUser.id);
+        if (error) { alert("更新失敗：" + error.message); return; }
+        currentProfile.display_name = name;
+        renderUserBar();
+        renderList();
+    }
+
+    /* ============================================================
+       歌曲清單載入 / 分組
+    ============================================================ */
+
+    async function loadSongsFromCloud() {
+        try {
+            let { data, error } = await window.mySupabase
+                .from('songs')
+                .select('*')
+                .order('created_at', { ascending: false });
+
+            if (error) throw error;
+
+            songData = data || [];
+            buildSongGroups();
+            initTags();
+            renderList();
+        } catch (err) {
+            console.error("載入列表失敗:", err);
+            document.getElementById('levelList').innerHTML = `<div class="no-result" style="color:#ff3333; background:#fff0f0; padding:15px; border-radius:8px; border:1px solid #ffcccc;">❌ 無法連線至雲端資料庫。<br><br><b>可能原因：</b>你的瀏覽器或廣告阻擋器封鎖了 Supabase 網域，或者後台網路斷線。<br><br><small>詳細錯誤訊息：${err.message || JSON.stringify(err)}</small></div>`;
+        }
+    }
+
+    function normalizeKey(title, singer) {
+        return (title || '').trim().toLowerCase() + "||" + (singer || '').trim().toLowerCase();
+    }
+
+    // 把同一首歌（歌名+歌手相同）的不同上傳版本，合併成一組
+    function buildSongGroups() {
+        const map = new Map();
+        songData.forEach(song => {
+            const key = song.song_key || normalizeKey(song.title, song.singer);
+            if (!map.has(key)) {
+                map.set(key, {
+                    key,
+                    title: song.title,
+                    singer: song.singer,
+                    difficulties: new Set(),
+                    versions: []
+                });
+            }
+            const group = map.get(key);
+            (Array.isArray(song.difficulties) ? song.difficulties : ["Level Pack"]).forEach(d => group.difficulties.add(d));
+            group.versions.push(song);
+        });
+
+        songGroups = [...map.values()].map(g => {
+            g.versions.sort((a, b) => new Date(b.created_at || b.id) - new Date(a.created_at || a.id));
+            return g;
+        });
+    }
+
+    function toggleSingerBox() {
+        const box = document.getElementById('singerContainerBox');
+        box.classList.toggle('hidden');
+    }
+
+    function filterActualTags() {
+        const query = document.getElementById('tagSearchInput').value.toLowerCase().trim();
+        const tags = document.querySelectorAll('#filterTags .tag');
+
+        tags.forEach(tag => {
+            if (tag.innerText === '全部') return;
+            if (tag.innerText.toLowerCase().includes(query)) {
+                tag.style.display = 'inline-block';
+            } else {
+                tag.style.display = 'none';
+            }
+        });
+    }
+
+    /* ============================================================
+       上傳
+    ============================================================ */
+
+    async function handleFileUpload(event) {
+        const file = event.target.files[0];
+        if (!file) return;
+
+        if (!currentUser) {
+            alert("請先登入才能上傳譜面！");
+            event.target.value = '';
+            openAuthModal('login');
+            return;
+        }
+
+        document.getElementById('uploadArea').style.setProperty('display', 'none', 'important');
+        document.getElementById('uploadLoading').style.display = 'block';
+
+        const textReader = new FileReader();
+        textReader.onload = function(e) {
+            const rawText = e.target.result;
+            let jsonContent = {};
+            try { jsonContent = JSON.parse(rawText); } catch(pErr) {}
+
+            const cleanFileName = file.name
+                .replace(".levelpack.json", "")
+                .replace(".json", "")
+                .replace(".levelpack", "");
+
+            let songTitle = (jsonContent.name || jsonContent.title || jsonContent.musicName || jsonContent.songName || cleanFileName).trim();
+            let songSinger = (jsonContent.singer || jsonContent.artist || jsonContent.author || jsonContent.authorName || jsonContent.musicAuthor || "未知歌手").trim();
+            let diffs = [];
+
+            if (jsonContent.charts && typeof jsonContent.charts === 'object') {
+                diffs = Object.keys(jsonContent.charts);
+            } else if (jsonContent.difficulty && typeof jsonContent.difficulty === 'object') {
+                diffs = Object.keys(jsonContent.difficulty);
+            } else if (Array.isArray(jsonContent.difficulties)) {
+                diffs = jsonContent.difficulties;
+            }
+            if (diffs.length === 0) diffs = ["Level Pack"];
+            diffs = diffs.map(d => String(d).trim());
+
+            const bufferReader = new FileReader();
+            bufferReader.onload = async function(bufEvent) {
+                try {
+                    const finalId = Date.now();
+                    const cloudFileName = finalId + "_levelpack.json";
+
+                    const arrayBuffer = bufEvent.target.result;
+                    const cleanFileObject = new File([arrayBuffer], "file.json", { type: "application/json" });
+
+                    const { error: storageError } = await window.mySupabase
+                        .storage
+                        .from('levelpacks')
+                        .upload(cloudFileName, cleanFileObject, {
+                            cacheControl: '3600',
+                            upsert: true
+                        });
+
+                    if (storageError) throw storageError;
+
+                    const { data: urlData } = window.mySupabase
+                        .storage
+                        .from('levelpacks')
+                        .getPublicUrl(cloudFileName);
+
+                    const publicUrl = urlData.publicUrl;
+
+                    const songPayload = {
+                        id: finalId,
+                        title: songTitle,
+                        singer: songSinger,
+                        difficulties: diffs,
+                        file_url: publicUrl,
+                        song_key: normalizeKey(songTitle, songSinger),
+                        uploader_id: currentUser.id,
+                        uploader_name: currentProfile ? currentProfile.display_name : (currentUser.email || '匿名').split('@')[0]
+                    };
+
+                    let { error: dbError } = await window.mySupabase
+                        .from('songs')
+                        .insert([songPayload]);
+
+                    if (dbError) throw dbError;
+
+                    alert("🎉 譜面已成功上傳為新版本！");
+                    loadSongsFromCloud();
+
+                } catch (error) {
+                    alert("上傳失敗：" + error.message);
+                } finally {
+                    document.getElementById('uploadArea').style.display = 'block';
+                    document.getElementById('uploadLoading').style.display = 'none';
+                    document.getElementById('fileInput').value = '';
+                }
+            };
+            bufferReader.readAsArrayBuffer(file);
+        };
+        textReader.readAsText(file);
+    }
+
+    async function downloadFileFromServer(fileUrl, songTitle) {
+        if (!fileUrl) return alert("找不到雲端下載連結。");
+        try {
+            const response = await fetch(fileUrl);
+            if (!response.ok) throw new Error("網路回應不正確");
+            const blob = await response.blob();
+
+            const blobUrl = window.URL.createObjectURL(blob);
+            const link = document.createElement('a');
+            link.href = blobUrl;
+            link.download = songTitle + ".levelpack.json";
+
+            document.body.appendChild(link);
+            link.click();
+
+            document.body.removeChild(link);
+            window.URL.revokeObjectURL(blobUrl);
+        } catch (error) {
+            window.open(fileUrl, '_blank');
+        }
+    }
+
+    /* ============================================================
+       刪除自己上傳的版本
+    ============================================================ */
+
+    async function deleteSong(id, groupKey) {
+        if (!confirm("確定要刪除這個版本嗎？此動作無法復原。")) return;
+        try {
+            const song = songData.find(s => s.id === id);
+
+            const { error } = await window.mySupabase.from('songs').delete().eq('id', id);
+            if (error) throw error;
+
+            if (song && song.file_url) {
+                const fileName = song.file_url.split('/').pop();
+                await window.mySupabase.storage.from('levelpacks').remove([fileName]);
+            }
+
+            await loadSongsFromCloud();
+
+            const stillExists = songGroups.find(g => g.key === groupKey);
+            if (stillExists) {
+                openVersionModal(groupKey);
+            } else {
+                closeVersionModal();
+            }
+        } catch (err) {
+            alert("刪除失敗：" + err.message);
+        }
+    }
+
+    /* ============================================================
+       版本清單彈窗
+    ============================================================ */
+
+    function openVersionModal(key) {
+        const group = songGroups.find(g => g.key === key);
+        if (!group) return;
+
+        document.getElementById('versionModalTitle').innerText = `${group.title} - ${group.singer}`;
+
+        const listEl = document.getElementById('versionList');
+        listEl.innerHTML = group.versions.map(v => {
+            const isOwn = currentUser && v.uploader_id === currentUser.id;
+            const dateStr = v.created_at ? new Date(v.created_at).toLocaleString() : '';
+            return `
+                <div class="version-item">
+                    <div class="version-main">
+                        <div class="version-uploader">👤 ${escapeHtml(v.uploader_name || '匿名')}</div>
+                        <div class="version-date">${escapeHtml(dateStr)}</div>
+                        <div class="difficulty-badges">
+                            ${(Array.isArray(v.difficulties) ? v.difficulties : ["Level Pack"]).map(d => `<span class="diff-badge">${escapeHtml(d)}</span>`).join('')}
+                        </div>
+                    </div>
+                    <div class="version-actions">
+                        <button class="btn btn-secondary" onclick="downloadFileFromServer('${escapeAttr(v.file_url)}', '${escapeAttr(v.title || '譜面')}')">下載</button>
+                        ${isOwn ? `<button class="btn btn-secondary btn-danger" onclick="deleteSong(${v.id}, '${escapeAttr(key)}')">刪除</button>` : ''}
+                    </div>
+                </div>
+            `;
+        }).join('');
+
+        document.getElementById('versionModal').classList.remove('hidden');
+    }
+
+    function closeVersionModal() {
+        document.getElementById('versionModal').classList.add('hidden');
+    }
+
+    function changePageSize() {
+        itemsPerPage = parseInt(document.getElementById('pageSizeSelect').value, 10);
+        currentPage = 1; renderList();
+    }
+
+    // 🌟 保留歌手安全切分工具函數
+    function getSingerArray(singerStr) {
+        if (!singerStr || typeof singerStr !== 'string') return ["未知歌手"];
+        return singerStr.split(/\s*&\s*|\s*and\s*|、|\s*\/\s*|\s*,\s*/i)
+                        .map(s => s.trim())
+                        .filter(s => s.length > 0);
+    }
+
+    function escapeHtml(str) {
+        return String(str).replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+    }
+    function escapeAttr(str) {
+        return String(str == null ? '' : str).replace(/\\/g, '\\\\').replace(/'/g, "\\'");
+    }
+
+    function initTags() {
+        const tagsContainer = document.getElementById('filterTags');
+        if (!tagsContainer) return;
+
+        const previousFilter = currentSingerFilter;
+        tagsContainer.innerHTML = '';
+
+        const allSpan = document.createElement('span');
+        allSpan.className = "tag " + (previousFilter === '全部' ? 'active' : '');
+        allSpan.innerText = '全部';
+        allSpan.onclick = function() { filterSinger('全部', allSpan); };
+        tagsContainer.appendChild(allSpan);
+
+        let singerSet = new Set();
+        songData.forEach(song => {
+            let splitList = getSingerArray(song.singer);
+            splitList.forEach(s => {
+                if (s) singerSet.add(s);
+            });
+        });
+
+        const singers = [...singerSet].sort();
+
+        if (previousFilter !== '全部' && !singers.includes(previousFilter)) {
+            currentSingerFilter = '全部';
+            allSpan.classList.add('active');
+        }
+
+        singers.forEach(singer => {
+            const span = document.createElement('span');
+            span.className = "tag " + (currentSingerFilter === singer ? 'active' : '');
+            span.innerText = singer;
+            span.onclick = function() { filterSinger(singer, span); };
+            tagsContainer.appendChild(span);
+        });
+
+        filterActualTags();
+    }
+
+    function filterSinger(singer, element) {
+        currentSingerFilter = singer;
+        document.querySelectorAll('.tag').forEach(t => t.classList.remove('active'));
+        if (element) element.classList.add('active');
+        currentPage = 1; renderList();
+    }
+
+    function renderList() {
+        const listContainer = document.getElementById('levelList');
+        if (!listContainer) return;
+        const keyword = searchBar.value.toLowerCase().trim();
+
+        const filteredGroups = songGroups.filter(group => {
+            let songSingers = getSingerArray(group.singer);
+            const matchesSinger = (currentSingerFilter === "全部" || songSingers.includes(currentSingerFilter));
+            const cleanTitle = (group.title || '').toLowerCase();
+            const cleanSinger = (group.singer || '').toLowerCase();
+            const matchesKeyword = (cleanTitle.includes(keyword) || cleanSinger.includes(keyword));
+            return matchesSinger && matchesKeyword;
+        });
+
+        const totalItems = filteredGroups.length;
+        const totalPages = Math.ceil(totalItems / itemsPerPage) || 1;
+        if (currentPage > totalPages) currentPage = totalPages;
+        const startIndex = (currentPage - 1) * itemsPerPage;
+        const pageGroups = filteredGroups.slice(startIndex, startIndex + itemsPerPage);
+
+        const pageInfoEl = document.getElementById('pageInfo');
+        if (pageInfoEl) pageInfoEl.innerText = "第 " + currentPage + " / " + totalPages + " 頁 (共 " + totalItems + " 首)";
+
+        const prevBtn = document.getElementById('prevPageBtn');
+        const nextBtn = document.getElementById('nextPageBtn');
+        if (prevBtn) prevBtn.disabled = (currentPage === 1);
+        if (nextBtn) nextBtn.disabled = (currentPage === totalPages);
+
+        if (pageGroups.length === 0) {
+            listContainer.innerHTML = '<div class="no-result">暫無任何譜面，快點擊上方上傳共享吧 😭</div>';
+            const pagWrapper = document.getElementById('paginationWrapper');
+            if (pagWrapper) pagWrapper.classList.add('hidden');
+            return;
+        }
+        const pagWrapper = document.getElementById('paginationWrapper');
+        if (pagWrapper) pagWrapper.classList.remove('hidden');
+
+        listContainer.innerHTML = pageGroups.map(group => {
+            const latest = group.versions[0];
+            const diffList = [...group.difficulties];
+            const versionCount = group.versions.length;
+            return `
+            <div class="level-card">
+                <div class="level-info">
+                    <div class="title">${escapeHtml(group.title || '無歌名')}</div>
+                    <div class="singer">🎤 ${escapeHtml(group.singer || '未知歌手')}</div>
+                    <div class="difficulty-badges">
+                        ${diffList.map(d => `<span class="diff-badge">${escapeHtml(d)}</span>`).join('')}
+                    </div>
+                    <div class="version-meta">📦 共 ${versionCount} 個版本・最新上傳者：${escapeHtml(latest.uploader_name || '匿名')}</div>
+                </div>
+                <div class="card-actions">
+                    <button class="btn" onclick="downloadFileFromServer('${escapeAttr(latest.file_url)}', '${escapeAttr(group.title || '譜面')}')">下載最新</button>
+                    <button class="btn btn-secondary" onclick="openVersionModal('${escapeAttr(group.key)}')">查看版本 (${versionCount})</button>
+                </div>
+            </div>
+        `;
+        }).join('');
+    }
+
+    function changePage(direction) { currentPage += direction; renderList(); }
+    searchBar.addEventListener('input', () => { currentPage = 1; renderList(); });
+</script>
+</body>
+</html>
