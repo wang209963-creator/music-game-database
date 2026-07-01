@@ -103,6 +103,11 @@
         .admin-empty { text-align: center; color: #999; padding: 20px 0; }
         .admin-loading { text-align: center; color: #7c3aed; padding: 10px 0; font-weight: bold; }
 
+        /* 🌟 行內刪除確認（取代跳出視窗） */
+        .confirm-wrap { display: inline-flex; align-items: center; }
+        .confirm-box { display: inline-flex; align-items: center; gap: 6px; }
+        .confirm-prompt { font-size: 12px; color: #ff3b30; font-weight: bold; white-space: nowrap; }
+
         @media (max-width: 480px) {
             .level-card { flex-direction: column; align-items: flex-start; gap: 12px; }
             .card-actions { width: 100%; justify-content: flex-end; }
@@ -123,6 +128,10 @@
             <p>點擊此處選擇並上傳譜面檔案</p>
             <span style="font-size: 12px; color: #666;">支援帶影片的 .levelpack 大型檔案</span>
             <input type="file" id="fileInput" accept=".json" onchange="handleFileUpload(event)">
+        </div>
+        <div style="text-align:center; margin-top:10px;">
+            <button class="btn btn-secondary" onclick="document.getElementById('folderInput').click()">📁 上傳整個資料夾（自動拆成多個關卡）</button>
+            <input type="file" id="folderInput" webkitdirectory directory multiple style="display:none;" onchange="handleFolderUpload(event)">
         </div>
         <div id="uploadLoading" class="upload-loading">⏳ 大檔案雲端同步中，請勿關閉網頁...</div>
     </div>
@@ -236,12 +245,33 @@
     let currentUser = null;     // Supabase auth 使用者物件
     let currentProfile = null;  // { id, display_name, is_admin }
     let allProfiles = [];       // 管理員後台用：所有使用者的 profiles 清單
+    let currentOpenGroupKey = null; // 目前開啟中的「版本清單」彈窗對應的關卡 key
 
     const searchBar = document.getElementById('searchBar');
 
     // 是否為管理員（依 profiles.is_admin 欄位判斷，需先在 Supabase 後台設定）
     function isAdmin() {
         return !!(currentProfile && currentProfile.is_admin === true);
+    }
+
+    // 管理員「編輯模式」開關：預設關閉，關閉時畫面與一般帳號完全相同
+    let editModeOn = false;
+
+    // 管理權限是否「真的生效中」= 是管理員 且 有開啟編輯模式
+    function adminEditActive() {
+        return isAdmin() && editModeOn;
+    }
+
+    function toggleEditMode() {
+        if (!isAdmin()) return;
+        editModeOn = !editModeOn;
+        renderUserBar();
+        renderList();
+        // 若版本清單彈窗開著，重新渲染以同步顯示/隱藏刪除按鈕
+        const versionModal = document.getElementById('versionModal');
+        if (versionModal && !versionModal.classList.contains('hidden') && currentOpenGroupKey) {
+            openVersionModal(currentOpenGroupKey);
+        }
     }
 
     window.onload = function() {
@@ -354,12 +384,14 @@
         if (currentUser) {
             const name = currentProfile ? currentProfile.display_name : "使用者";
             const hasGoogle = (currentUser.identities || []).some(i => i.provider === 'google');
+            const adminOn = adminEditActive();
             bar.innerHTML = `
-                ${isAdmin() ? '<span class="admin-badge">🛡️ 管理員</span>' : ''}
+                ${adminOn ? '<span class="admin-badge">🛡️ 管理員</span>' : ''}
                 <span class="user-name">👤 ${escapeHtml(name)}</span>
                 <button class="btn btn-secondary" onclick="openEditNameModal()">改名</button>
                 ${hasGoogle ? '' : '<button class="btn btn-secondary" onclick="doGoogleLink()">🔗 綁定 Google</button>'}
-                ${isAdmin() ? '<button class="btn btn-admin" onclick="openAdminModal()">🛡️ 管理後台</button>' : ''}
+                ${isAdmin() ? `<button class="btn btn-secondary ${adminOn ? 'btn-admin' : ''}" onclick="toggleEditMode()">${adminOn ? '✅ 編輯模式中' : '🛡️ 編輯模式'}</button>` : ''}
+                ${adminOn ? '<button class="btn btn-admin" onclick="openAdminModal()">🛡️ 管理後台</button>' : ''}
                 <button class="btn btn-secondary" onclick="doLogout()">登出</button>
             `;
         } else {
@@ -561,6 +593,120 @@
        上傳
     ============================================================ */
 
+    // 處理「單一個」譜面檔案的核心邏輯：
+    // 解析 -> 上傳雲端 -> 寫入資料庫（若同一人已上傳過同一首歌，改成「更新」而不是新增一筆）
+    // 回傳 Promise，resolve 出 { title, singer, updated }；失敗則 reject(Error)
+    function processLevelFile(file) {
+        return new Promise((resolve, reject) => {
+            const textReader = new FileReader();
+            textReader.onerror = () => reject(new Error("讀取檔案失敗"));
+            textReader.onload = function(e) {
+                const rawText = e.target.result;
+                let jsonContent = {};
+                try { jsonContent = JSON.parse(rawText); } catch (pErr) {}
+
+                const cleanFileName = file.name
+                    .replace(".levelpack.json", "")
+                    .replace(".json", "")
+                    .replace(".levelpack", "");
+
+                let songTitle = (jsonContent.name || jsonContent.title || jsonContent.musicName || jsonContent.songName || cleanFileName).trim();
+                let songSinger = (jsonContent.singer || jsonContent.artist || jsonContent.author || jsonContent.authorName || jsonContent.musicAuthor || "未知歌手").trim();
+                let diffs = [];
+
+                if (jsonContent.charts && typeof jsonContent.charts === 'object') {
+                    diffs = Object.keys(jsonContent.charts);
+                } else if (jsonContent.difficulty && typeof jsonContent.difficulty === 'object') {
+                    diffs = Object.keys(jsonContent.difficulty);
+                } else if (Array.isArray(jsonContent.difficulties)) {
+                    diffs = jsonContent.difficulties;
+                }
+                if (diffs.length === 0) diffs = ["Level Pack"];
+                diffs = diffs.map(d => String(d).trim());
+
+                const bufferReader = new FileReader();
+                bufferReader.onerror = () => reject(new Error("讀取檔案失敗"));
+                bufferReader.onload = async function(bufEvent) {
+                    try {
+                        const songKey = normalizeKey(songTitle, songSinger);
+
+                        // 🌟 每人每首歌只能有一個版本：先查這個人是否已經上傳過同一首歌
+                        const { data: existingRow, error: findError } = await window.mySupabase
+                            .from('songs')
+                            .select('id, file_url')
+                            .eq('song_key', songKey)
+                            .eq('uploader_id', currentUser.id)
+                            .maybeSingle();
+
+                        if (findError) throw findError;
+
+                        const finalId = existingRow ? existingRow.id : Date.now();
+                        const cloudFileName = finalId + "_" + Date.now() + "_levelpack.json";
+
+                        const arrayBuffer = bufEvent.target.result;
+                        const cleanFileObject = new File([arrayBuffer], "file.json", { type: "application/json" });
+
+                        const { error: storageError } = await window.mySupabase
+                            .storage
+                            .from('levelpacks')
+                            .upload(cloudFileName, cleanFileObject, {
+                                cacheControl: '3600',
+                                upsert: true
+                            });
+
+                        if (storageError) throw storageError;
+
+                        const { data: urlData } = window.mySupabase
+                            .storage
+                            .from('levelpacks')
+                            .getPublicUrl(cloudFileName);
+
+                        const publicUrl = urlData.publicUrl;
+
+                        const songPayload = {
+                            title: songTitle,
+                            singer: songSinger,
+                            difficulties: diffs,
+                            file_url: publicUrl,
+                            song_key: songKey,
+                            uploader_id: currentUser.id,
+                            uploader_name: currentProfile ? currentProfile.display_name : (currentUser.email || '匿名').split('@')[0],
+                            created_at: new Date().toISOString()
+                        };
+
+                        if (existingRow) {
+                            // 已經上傳過同一首歌 -> 更新原本那一筆，取代舊版本
+                            const { error: updateError } = await window.mySupabase
+                                .from('songs')
+                                .update(songPayload)
+                                .eq('id', existingRow.id);
+                            if (updateError) throw updateError;
+
+                            // 清掉舊的雲端檔案，避免留下沒用到的孤兒檔案
+                            if (existingRow.file_url) {
+                                const oldFileName = existingRow.file_url.split('/').pop();
+                                if (oldFileName && oldFileName !== cloudFileName) {
+                                    await window.mySupabase.storage.from('levelpacks').remove([oldFileName]);
+                                }
+                            }
+                        } else {
+                            const { error: insertError } = await window.mySupabase
+                                .from('songs')
+                                .insert([{ id: finalId, ...songPayload }]);
+                            if (insertError) throw insertError;
+                        }
+
+                        resolve({ title: songTitle, singer: songSinger, updated: !!existingRow });
+                    } catch (error) {
+                        reject(error);
+                    }
+                };
+                bufferReader.readAsArrayBuffer(file);
+            };
+            textReader.readAsText(file);
+        });
+    }
+
     async function handleFileUpload(event) {
         const file = event.target.files[0];
         if (!file) return;
@@ -573,91 +719,81 @@
         }
 
         document.getElementById('uploadArea').style.setProperty('display', 'none', 'important');
-        document.getElementById('uploadLoading').style.display = 'block';
+        const loadingEl = document.getElementById('uploadLoading');
+        loadingEl.innerText = "⏳ 大檔案雲端同步中，請勿關閉網頁...";
+        loadingEl.style.display = 'block';
 
-        const textReader = new FileReader();
-        textReader.onload = function(e) {
-            const rawText = e.target.result;
-            let jsonContent = {};
-            try { jsonContent = JSON.parse(rawText); } catch(pErr) {}
-
-            const cleanFileName = file.name
-                .replace(".levelpack.json", "")
-                .replace(".json", "")
-                .replace(".levelpack", "");
-
-            let songTitle = (jsonContent.name || jsonContent.title || jsonContent.musicName || jsonContent.songName || cleanFileName).trim();
-            let songSinger = (jsonContent.singer || jsonContent.artist || jsonContent.author || jsonContent.authorName || jsonContent.musicAuthor || "未知歌手").trim();
-            let diffs = [];
-
-            if (jsonContent.charts && typeof jsonContent.charts === 'object') {
-                diffs = Object.keys(jsonContent.charts);
-            } else if (jsonContent.difficulty && typeof jsonContent.difficulty === 'object') {
-                diffs = Object.keys(jsonContent.difficulty);
-            } else if (Array.isArray(jsonContent.difficulties)) {
-                diffs = jsonContent.difficulties;
-            }
-            if (diffs.length === 0) diffs = ["Level Pack"];
-            diffs = diffs.map(d => String(d).trim());
-
-            const bufferReader = new FileReader();
-            bufferReader.onload = async function(bufEvent) {
-                try {
-                    const finalId = Date.now();
-                    const cloudFileName = finalId + "_levelpack.json";
-
-                    const arrayBuffer = bufEvent.target.result;
-                    const cleanFileObject = new File([arrayBuffer], "file.json", { type: "application/json" });
-
-                    const { error: storageError } = await window.mySupabase
-                        .storage
-                        .from('levelpacks')
-                        .upload(cloudFileName, cleanFileObject, {
-                            cacheControl: '3600',
-                            upsert: true
-                        });
-
-                    if (storageError) throw storageError;
-
-                    const { data: urlData } = window.mySupabase
-                        .storage
-                        .from('levelpacks')
-                        .getPublicUrl(cloudFileName);
-
-                    const publicUrl = urlData.publicUrl;
-
-                    const songPayload = {
-                        id: finalId,
-                        title: songTitle,
-                        singer: songSinger,
-                        difficulties: diffs,
-                        file_url: publicUrl,
-                        song_key: normalizeKey(songTitle, songSinger),
-                        uploader_id: currentUser.id,
-                        uploader_name: currentProfile ? currentProfile.display_name : (currentUser.email || '匿名').split('@')[0]
-                    };
-
-                    let { error: dbError } = await window.mySupabase
-                        .from('songs')
-                        .insert([songPayload]);
-
-                    if (dbError) throw dbError;
-
-                    alert("🎉 譜面已成功上傳為新版本！");
-                    loadSongsFromCloud();
-
-                } catch (error) {
-                    alert("上傳失敗：" + error.message);
-                } finally {
-                    document.getElementById('uploadArea').style.display = 'block';
-                    document.getElementById('uploadLoading').style.display = 'none';
-                    document.getElementById('fileInput').value = '';
-                }
-            };
-            bufferReader.readAsArrayBuffer(file);
-        };
-        textReader.readAsText(file);
+        try {
+            const result = await processLevelFile(file);
+            alert(result.updated
+                ? `🎉 已更新你在「${result.title}」上傳過的版本！（每人每首歌只保留一個版本）`
+                : "🎉 譜面已成功上傳為新版本！");
+            loadSongsFromCloud();
+        } catch (error) {
+            alert("上傳失敗：" + error.message);
+        } finally {
+            document.getElementById('uploadArea').style.display = 'block';
+            loadingEl.style.display = 'none';
+            event.target.value = '';
+        }
     }
+
+    // 🌟 整個資料夾上傳：一次選取資料夾，裡面所有 .json 譜面檔會被逐一拆成單獨的關卡上傳
+    async function handleFolderUpload(event) {
+        const allFiles = Array.from(event.target.files || []);
+        const files = allFiles.filter(f => f.name.toLowerCase().endsWith('.json'));
+
+        if (!currentUser) {
+            alert("請先登入才能上傳譜面！");
+            event.target.value = '';
+            openAuthModal('login');
+            return;
+        }
+
+        if (files.length === 0) {
+            alert("這個資料夾裡沒有找到任何 .json 譜面檔案。");
+            event.target.value = '';
+            return;
+        }
+
+        if (!confirm(`偵測到資料夾內共有 ${files.length} 個譜面檔案，將會拆成 ${files.length} 個關卡逐一上傳，確定要繼續嗎？`)) {
+            event.target.value = '';
+            return;
+        }
+
+        document.getElementById('uploadArea').style.setProperty('display', 'none', 'important');
+        const loadingEl = document.getElementById('uploadLoading');
+        loadingEl.style.display = 'block';
+
+        let successCount = 0, updateCount = 0, failCount = 0;
+        const failedNames = [];
+
+        for (let i = 0; i < files.length; i++) {
+            loadingEl.innerText = `⏳ 資料夾上傳中 (${i + 1}/${files.length})，請勿關閉網頁...`;
+            try {
+                const result = await processLevelFile(files[i]);
+                successCount++;
+                if (result.updated) updateCount++;
+            } catch (err) {
+                failCount++;
+                failedNames.push(files[i].name);
+                console.error("資料夾上傳失敗：", files[i].name, err);
+            }
+        }
+
+        document.getElementById('uploadArea').style.display = 'block';
+        loadingEl.style.display = 'none';
+        loadingEl.innerText = "⏳ 大檔案雲端同步中，請勿關閉網頁...";
+        event.target.value = '';
+
+        let msg = `📁 資料夾上傳完成！\n成功：${successCount} 個（其中更新既有版本：${updateCount} 個）\n失敗：${failCount} 個`;
+        if (failedNames.length > 0) {
+            msg += "\n\n失敗的檔案：\n" + failedNames.join("\n");
+        }
+        alert(msg);
+        loadSongsFromCloud();
+    }
+
 
     async function downloadFileFromServer(fileUrl, songTitle) {
         if (!fileUrl) return alert("找不到雲端下載連結。");
@@ -685,8 +821,30 @@
        刪除自己上傳的版本
     ============================================================ */
 
+    /* ============================================================
+       行內刪除確認（取代 confirm() 跳出視窗）
+       用法：按鈕先顯示「刪除」，點下去後在旁邊出現「確定／取消」，
+       不會有瀏覽器的跳出視窗。
+    ============================================================ */
+    function showConfirmButtons(wrapId) {
+        const el = document.getElementById(wrapId);
+        if (!el) return;
+        const askBtn = el.querySelector('[data-role="ask"]');
+        const confirmBox = el.querySelector('[data-role="confirm"]');
+        if (askBtn) askBtn.style.display = 'none';
+        if (confirmBox) confirmBox.style.display = 'inline-flex';
+    }
+
+    function hideConfirmButtons(wrapId) {
+        const el = document.getElementById(wrapId);
+        if (!el) return;
+        const askBtn = el.querySelector('[data-role="ask"]');
+        const confirmBox = el.querySelector('[data-role="confirm"]');
+        if (askBtn) askBtn.style.display = '';
+        if (confirmBox) confirmBox.style.display = 'none';
+    }
+
     async function deleteSong(id, groupKey) {
-        if (!confirm("確定要刪除這個版本嗎？此動作無法復原。")) return;
         try {
             const song = songData.find(s => s.id === id);
 
@@ -719,12 +877,14 @@
         const group = songGroups.find(g => g.key === key);
         if (!group) return;
 
+        currentOpenGroupKey = key;
         document.getElementById('versionModalTitle').innerText = `${group.title} - ${group.singer}`;
 
         const listEl = document.getElementById('versionList');
         listEl.innerHTML = group.versions.map(v => {
             const isOwn = currentUser && v.uploader_id === currentUser.id;
-            const canDelete = isOwn || isAdmin();
+            const canDelete = isOwn || adminEditActive();
+            const wrapId = 'delwrap_song_' + v.id;
             const dateStr = v.created_at ? new Date(v.created_at).toLocaleString() : '';
             return `
                 <div class="version-item">
@@ -737,7 +897,16 @@
                     </div>
                     <div class="version-actions">
                         <button class="btn btn-secondary" onclick="downloadFileFromServer('${escapeAttr(v.file_url)}', '${escapeAttr(v.title || '譜面')}')">下載</button>
-                        ${canDelete ? `<button class="btn btn-secondary btn-danger" onclick="deleteSong(${v.id}, '${escapeAttr(key)}')">${isOwn ? '刪除' : '🛡️ 管理員刪除'}</button>` : ''}
+                        ${canDelete ? `
+                        <span id="${wrapId}" class="confirm-wrap">
+                            <button class="btn btn-secondary btn-danger" data-role="ask" onclick="showConfirmButtons('${wrapId}')">${isOwn ? '刪除' : '🛡️ 管理員刪除'}</button>
+                            <span data-role="confirm" class="confirm-box" style="display:none;">
+                                <span class="confirm-prompt">確定？</span>
+                                <button class="btn btn-secondary" onclick="hideConfirmButtons('${wrapId}')">取消</button>
+                                <button class="btn btn-danger" onclick="deleteSong(${v.id}, '${escapeAttr(key)}')">確定</button>
+                            </span>
+                        </span>
+                        ` : ''}
                     </div>
                 </div>
             `;
@@ -748,6 +917,7 @@
 
     function closeVersionModal() {
         document.getElementById('versionModal').classList.add('hidden');
+        currentOpenGroupKey = null;
     }
 
     /* ============================================================
@@ -756,11 +926,9 @@
 
     // 一鍵刪除整個關卡（含所有版本 + 雲端檔案），僅管理員可用
     async function adminDeleteEntireGroup(key) {
-        if (!isAdmin()) return;
+        if (!adminEditActive()) return;
         const group = songGroups.find(g => g.key === key);
         if (!group) return;
-
-        if (!confirm(`確定要刪除整個關卡「${group.title}」嗎？\n此關卡共 ${group.versions.length} 個版本，全部都會被永久刪除，此動作無法復原。`)) return;
 
         try {
             const ids = group.versions.map(v => v.id);
@@ -783,7 +951,7 @@
     }
 
     function openAdminModal() {
-        if (!isAdmin()) return;
+        if (!adminEditActive()) return;
         document.getElementById('adminModal').classList.remove('hidden');
         document.getElementById('adminUserSearch').value = '';
         loadAdminUsers();
@@ -845,7 +1013,14 @@
                         </select>
                         <button class="btn btn-secondary btn-admin" onclick="adminBanUser('${escapeAttr(p.id)}', document.getElementById('${escapeAttr(banSelectId)}').value)">封禁</button>
                         <button class="btn btn-secondary" onclick="adminUnbanUser('${escapeAttr(p.id)}')">解封</button>
-                        <button class="btn btn-secondary btn-danger" onclick="adminDeleteUser('${escapeAttr(p.id)}', '${escapeAttr(p.display_name || '')}')">刪除帳號</button>
+                        <span id="delwrap_user_${p.id}" class="confirm-wrap">
+                            <button class="btn btn-secondary btn-danger" data-role="ask" onclick="showConfirmButtons('delwrap_user_${p.id}')">刪除帳號</button>
+                            <span data-role="confirm" class="confirm-box" style="display:none;">
+                                <span class="confirm-prompt">永久刪除？</span>
+                                <button class="btn btn-secondary" onclick="hideConfirmButtons('delwrap_user_${p.id}')">取消</button>
+                                <button class="btn btn-danger" onclick="adminDeleteUser('${escapeAttr(p.id)}', '${escapeAttr(p.display_name || '')}')">確定</button>
+                            </span>
+                        </span>
                     </div>
                     `}
                 </div>
@@ -893,7 +1068,6 @@
     }
 
     async function adminDeleteUser(userId, displayName) {
-        if (!confirm(`⚠️ 確定要「永久刪除」帳號「${displayName}」嗎？\n此動作無法復原，該玩家將無法再登入。`)) return;
         try {
             await callAdminAction('delete_user', userId, null);
             alert('✅ 已刪除該帳號');
@@ -1006,10 +1180,11 @@
         const pagWrapper = document.getElementById('paginationWrapper');
         if (pagWrapper) pagWrapper.classList.remove('hidden');
 
-        listContainer.innerHTML = pageGroups.map(group => {
+        listContainer.innerHTML = pageGroups.map((group, idx) => {
             const latest = group.versions[0];
             const diffList = [...group.difficulties];
             const versionCount = group.versions.length;
+            const groupWrapId = 'delwrap_group_' + idx;
             return `
             <div class="level-card">
                 <div class="level-info">
@@ -1023,7 +1198,16 @@
                 <div class="card-actions">
                     <button class="btn" onclick="downloadFileFromServer('${escapeAttr(latest.file_url)}', '${escapeAttr(group.title || '譜面')}')">下載最新</button>
                     <button class="btn btn-secondary" onclick="openVersionModal('${escapeAttr(group.key)}')">查看版本 (${versionCount})</button>
-                    ${isAdmin() ? `<button class="btn btn-secondary btn-danger" onclick="adminDeleteEntireGroup('${escapeAttr(group.key)}')">🗑️ 一鍵刪除關卡</button>` : ''}
+                    ${adminEditActive() ? `
+                    <span id="${groupWrapId}" class="confirm-wrap">
+                        <button class="btn btn-secondary btn-danger" data-role="ask" onclick="showConfirmButtons('${groupWrapId}')">🗑️ 一鍵刪除關卡</button>
+                        <span data-role="confirm" class="confirm-box" style="display:none;">
+                            <span class="confirm-prompt">確定整組刪除？</span>
+                            <button class="btn btn-secondary" onclick="hideConfirmButtons('${groupWrapId}')">取消</button>
+                            <button class="btn btn-danger" onclick="adminDeleteEntireGroup('${escapeAttr(group.key)}')">確定</button>
+                        </span>
+                    </span>
+                    ` : ''}
                 </div>
             </div>
         `;
