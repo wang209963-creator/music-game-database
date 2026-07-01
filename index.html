@@ -86,6 +86,23 @@
         .version-date { font-size: 11px; color: #999; margin-bottom: 4px; }
         .version-actions { display: flex; gap: 6px; flex-shrink: 0; }
 
+        /* 🌟 管理員相關樣式 */
+        .admin-badge { background: #7c3aed; color: #fff; font-size: 11px; padding: 3px 8px; border-radius: 10px; font-weight: bold; margin-right: 4px; }
+        .btn-admin { background: #7c3aed !important; }
+        .btn-admin:hover { background: #6425d0 !important; }
+        .admin-user-row { display: flex; justify-content: space-between; align-items: center; gap: 10px; padding: 12px 0; border-bottom: 1px solid #eee; flex-wrap: wrap; }
+        .admin-user-row:last-child { border-bottom: none; }
+        .admin-user-main { flex: 1; min-width: 140px; }
+        .admin-user-name { font-weight: bold; font-size: 15px; }
+        .admin-user-id { font-size: 11px; color: #999; word-break: break-all; }
+        .admin-user-status { font-size: 12px; margin-top: 3px; font-weight: bold; }
+        .admin-user-status.banned { color: #ff3b30; }
+        .admin-user-status.active { color: #2e9e4a; }
+        .admin-user-actions { display: flex; gap: 6px; align-items: center; flex-wrap: wrap; }
+        .admin-ban-select { padding: 6px 8px; border-radius: 6px; border: 1px solid #ddd; font-size: 13px; }
+        .admin-empty { text-align: center; color: #999; padding: 20px 0; }
+        .admin-loading { text-align: center; color: #7c3aed; padding: 10px 0; font-weight: bold; }
+
         @media (max-width: 480px) {
             .level-card { flex-direction: column; align-items: flex-start; gap: 12px; }
             .card-actions { width: 100%; justify-content: flex-end; }
@@ -191,6 +208,16 @@
     </div>
 </div>
 
+<!-- 🌟 管理員後台：使用者清單彈窗 -->
+<div id="adminModal" class="modal-overlay hidden">
+    <div class="modal-box wide">
+        <button class="modal-close" onclick="closeAdminModal()">✕</button>
+        <h3 style="margin-top:0; padding-right:20px;">🛡️ 管理員後台・使用者管理</h3>
+        <input type="text" id="adminUserSearch" class="search-box" style="margin-bottom:12px;" placeholder="🔍 搜尋玩家（顯示名稱 / 使用者ID）..." oninput="renderAdminUserList()" autocomplete="off" autocorrect="off" autocapitalize="off" spellcheck="false">
+        <div id="adminUserList"></div>
+    </div>
+</div>
+
 <script>
     const SUPABASE_URL = "https://ajrzfconrxvqnkjtrzeg.supabase.co";
     const SUPABASE_KEY = "sb_publishable_H4HdOMcxVi1RoqRVzwdgUw_ijbJATF-";
@@ -207,9 +234,15 @@
     let itemsPerPage = 10;
 
     let currentUser = null;     // Supabase auth 使用者物件
-    let currentProfile = null;  // { id, display_name }
+    let currentProfile = null;  // { id, display_name, is_admin }
+    let allProfiles = [];       // 管理員後台用：所有使用者的 profiles 清單
 
     const searchBar = document.getElementById('searchBar');
+
+    // 是否為管理員（依 profiles.is_admin 欄位判斷，需先在 Supabase 後台設定）
+    function isAdmin() {
+        return !!(currentProfile && currentProfile.is_admin === true);
+    }
 
     window.onload = function() {
         reportAuthRedirectError();
@@ -322,9 +355,11 @@
             const name = currentProfile ? currentProfile.display_name : "使用者";
             const hasGoogle = (currentUser.identities || []).some(i => i.provider === 'google');
             bar.innerHTML = `
+                ${isAdmin() ? '<span class="admin-badge">🛡️ 管理員</span>' : ''}
                 <span class="user-name">👤 ${escapeHtml(name)}</span>
                 <button class="btn btn-secondary" onclick="openEditNameModal()">改名</button>
                 ${hasGoogle ? '' : '<button class="btn btn-secondary" onclick="doGoogleLink()">🔗 綁定 Google</button>'}
+                ${isAdmin() ? '<button class="btn btn-admin" onclick="openAdminModal()">🛡️ 管理後台</button>' : ''}
                 <button class="btn btn-secondary" onclick="doLogout()">登出</button>
             `;
         } else {
@@ -689,6 +724,7 @@
         const listEl = document.getElementById('versionList');
         listEl.innerHTML = group.versions.map(v => {
             const isOwn = currentUser && v.uploader_id === currentUser.id;
+            const canDelete = isOwn || isAdmin();
             const dateStr = v.created_at ? new Date(v.created_at).toLocaleString() : '';
             return `
                 <div class="version-item">
@@ -701,7 +737,7 @@
                     </div>
                     <div class="version-actions">
                         <button class="btn btn-secondary" onclick="downloadFileFromServer('${escapeAttr(v.file_url)}', '${escapeAttr(v.title || '譜面')}')">下載</button>
-                        ${isOwn ? `<button class="btn btn-secondary btn-danger" onclick="deleteSong(${v.id}, '${escapeAttr(key)}')">刪除</button>` : ''}
+                        ${canDelete ? `<button class="btn btn-secondary btn-danger" onclick="deleteSong(${v.id}, '${escapeAttr(key)}')">${isOwn ? '刪除' : '🛡️ 管理員刪除'}</button>` : ''}
                     </div>
                 </div>
             `;
@@ -712,6 +748,159 @@
 
     function closeVersionModal() {
         document.getElementById('versionModal').classList.add('hidden');
+    }
+
+    /* ============================================================
+       管理員後台
+    ============================================================ */
+
+    // 一鍵刪除整個關卡（含所有版本 + 雲端檔案），僅管理員可用
+    async function adminDeleteEntireGroup(key) {
+        if (!isAdmin()) return;
+        const group = songGroups.find(g => g.key === key);
+        if (!group) return;
+
+        if (!confirm(`確定要刪除整個關卡「${group.title}」嗎？\n此關卡共 ${group.versions.length} 個版本，全部都會被永久刪除，此動作無法復原。`)) return;
+
+        try {
+            const ids = group.versions.map(v => v.id);
+            const fileNames = group.versions
+                .map(v => v.file_url ? v.file_url.split('/').pop() : null)
+                .filter(Boolean);
+
+            const { error: dbError } = await window.mySupabase.from('songs').delete().in('id', ids);
+            if (dbError) throw dbError;
+
+            if (fileNames.length > 0) {
+                await window.mySupabase.storage.from('levelpacks').remove(fileNames);
+            }
+
+            await loadSongsFromCloud();
+            alert("✅ 已刪除整個關卡");
+        } catch (err) {
+            alert("刪除失敗：" + err.message + "\n\n（請確認已在 Supabase 後台建立允許管理員刪除的 RLS 政策）");
+        }
+    }
+
+    function openAdminModal() {
+        if (!isAdmin()) return;
+        document.getElementById('adminModal').classList.remove('hidden');
+        document.getElementById('adminUserSearch').value = '';
+        loadAdminUsers();
+    }
+
+    function closeAdminModal() {
+        document.getElementById('adminModal').classList.add('hidden');
+    }
+
+    async function loadAdminUsers() {
+        const listEl = document.getElementById('adminUserList');
+        listEl.innerHTML = '<div class="admin-loading">⏳ 載入使用者清單中...</div>';
+        try {
+            const { data, error } = await window.mySupabase
+                .from('profiles')
+                .select('*')
+                .order('display_name', { ascending: true });
+            if (error) throw error;
+            allProfiles = data || [];
+            renderAdminUserList();
+        } catch (err) {
+            listEl.innerHTML = `<div class="admin-empty" style="color:#ff3333;">載入失敗：${escapeHtml(err.message)}</div>`;
+        }
+    }
+
+    function renderAdminUserList() {
+        const listEl = document.getElementById('adminUserList');
+        if (!listEl) return;
+        const keyword = (document.getElementById('adminUserSearch').value || '').toLowerCase().trim();
+
+        const filtered = allProfiles.filter(p => {
+            const name = (p.display_name || '').toLowerCase();
+            const id = (p.id || '').toLowerCase();
+            return name.includes(keyword) || id.includes(keyword);
+        });
+
+        if (filtered.length === 0) {
+            listEl.innerHTML = '<div class="admin-empty">找不到符合的玩家</div>';
+            return;
+        }
+
+        listEl.innerHTML = filtered.map(p => {
+            const banSelectId = 'banDays_' + p.id;
+            const isSelf = currentUser && p.id === currentUser.id;
+            return `
+                <div class="admin-user-row">
+                    <div class="admin-user-main">
+                        <div class="admin-user-name">👤 ${escapeHtml(p.display_name || '（未命名）')} ${p.is_admin ? '<span class="admin-badge">管理員</span>' : ''}</div>
+                        <div class="admin-user-id">ID: ${escapeHtml(p.id)}</div>
+                    </div>
+                    ${isSelf ? '<div style="font-size:13px; color:#999;">（這是你自己的帳號）</div>' : `
+                    <div class="admin-user-actions">
+                        <select id="${escapeAttr(banSelectId)}" class="admin-ban-select">
+                            <option value="1">封禁 1 天</option>
+                            <option value="3">封禁 3 天</option>
+                            <option value="7">封禁 7 天</option>
+                            <option value="30">封禁 30 天</option>
+                            <option value="permanent">永久封禁</option>
+                        </select>
+                        <button class="btn btn-secondary btn-admin" onclick="adminBanUser('${escapeAttr(p.id)}', document.getElementById('${escapeAttr(banSelectId)}').value)">封禁</button>
+                        <button class="btn btn-secondary" onclick="adminUnbanUser('${escapeAttr(p.id)}')">解封</button>
+                        <button class="btn btn-secondary btn-danger" onclick="adminDeleteUser('${escapeAttr(p.id)}', '${escapeAttr(p.display_name || '')}')">刪除帳號</button>
+                    </div>
+                    `}
+                </div>
+            `;
+        }).join('');
+    }
+
+    // 呼叫後端 Edge Function 執行特權操作（封禁 / 解封 / 刪除帳號）
+    // 需先部署 admin-actions Edge Function，並在 Supabase 後台設定好 is_admin 與 RLS
+    async function callAdminAction(action, targetUserId, days) {
+        const { data, error } = await window.mySupabase.functions.invoke('admin-actions', {
+            body: { action, target_user_id: targetUserId, days }
+        });
+        if (error) {
+            let detail = error.message || String(error);
+            try {
+                const ctx = error.context && typeof error.context.json === 'function' ? await error.context.json() : null;
+                if (ctx && ctx.error) detail = ctx.error;
+            } catch (_) {}
+            throw new Error(detail);
+        }
+        if (data && data.error) throw new Error(data.error);
+        return data;
+    }
+
+    async function adminBanUser(userId, days) {
+        const label = days === 'permanent' ? '永久' : (days + ' 天');
+        if (!confirm(`確定要封禁此帳號 ${label} 嗎？`)) return;
+        try {
+            await callAdminAction('ban_user', userId, days);
+            alert('✅ 已封禁該帳號（' + label + '）');
+        } catch (err) {
+            alert('封禁失敗：' + err.message);
+        }
+    }
+
+    async function adminUnbanUser(userId) {
+        if (!confirm('確定要解除此帳號的封禁嗎？')) return;
+        try {
+            await callAdminAction('unban_user', userId, null);
+            alert('✅ 已解封該帳號');
+        } catch (err) {
+            alert('解封失敗：' + err.message);
+        }
+    }
+
+    async function adminDeleteUser(userId, displayName) {
+        if (!confirm(`⚠️ 確定要「永久刪除」帳號「${displayName}」嗎？\n此動作無法復原，該玩家將無法再登入。`)) return;
+        try {
+            await callAdminAction('delete_user', userId, null);
+            alert('✅ 已刪除該帳號');
+            await loadAdminUsers();
+        } catch (err) {
+            alert('刪除帳號失敗：' + err.message);
+        }
     }
 
     function changePageSize() {
@@ -834,6 +1023,7 @@
                 <div class="card-actions">
                     <button class="btn" onclick="downloadFileFromServer('${escapeAttr(latest.file_url)}', '${escapeAttr(group.title || '譜面')}')">下載最新</button>
                     <button class="btn btn-secondary" onclick="openVersionModal('${escapeAttr(group.key)}')">查看版本 (${versionCount})</button>
+                    ${isAdmin() ? `<button class="btn btn-secondary btn-danger" onclick="adminDeleteEntireGroup('${escapeAttr(group.key)}')">🗑️ 一鍵刪除關卡</button>` : ''}
                 </div>
             </div>
         `;
