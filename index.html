@@ -1204,8 +1204,15 @@
                 }
             }
 
-            const { error } = await window.mySupabase.from('songs').update(payload).eq('id', song.id);
+            const { data: updatedRows, error } = await window.mySupabase
+                .from('songs')
+                .update(payload)
+                .eq('id', song.id)
+                .select();
             if (error) throw error;
+            if (!updatedRows || updatedRows.length === 0) {
+                throw new Error("資料庫拒絕了這次更新（很可能是 Supabase 的 RLS 權限政策不允許，尤其是管理員修改別人上傳的資料時）。請確認 songs 資料表已設定允許本人或管理員 UPDATE 的政策。");
+            }
 
             closeEditModal();
             await loadSongsFromCloud();
@@ -1486,6 +1493,10 @@
             const diffList = [...group.difficulties];
             const versionCount = group.versions.length;
             const groupWrapId = 'delwrap_group_' + idx;
+            const singleDelWrapId = 'delwrap_single_' + idx;
+            const isOwnLatest = currentUser && latest.uploader_id === currentUser.id;
+            const canEditLatest = isOwnLatest || adminEditActive();
+            const canDeleteLatest = isOwnLatest;
             return `
             <div class="level-card">
                 <div class="level-info">
@@ -1500,7 +1511,21 @@
                 </div>
                 <div class="card-actions">
                     <button class="btn" onclick="downloadFileFromServer('${escapeAttr(latest.file_url)}', '${escapeAttr(group.title || '譜面')}')">下載最新</button>
+                    ${versionCount > 1 ? `
                     <button class="btn btn-secondary" onclick="openVersionModal('${escapeAttr(group.key)}')">查看版本 (${versionCount})</button>
+                    ` : `
+                    ${canEditLatest ? `<button class="btn btn-secondary" onclick="openEditModal(${latest.id})">${isOwnLatest ? '✏️ 編輯' : '🛡️ 編輯資訊'}</button>` : ''}
+                    ${canDeleteLatest ? `
+                    <span id="${singleDelWrapId}" class="confirm-wrap">
+                        <button class="btn btn-secondary btn-danger" data-role="ask" onclick="showConfirmButtons('${singleDelWrapId}')">${isOwnLatest ? '刪除' : '🛡️ 管理員刪除'}</button>
+                        <span data-role="confirm" class="confirm-box" style="display:none;">
+                            <span class="confirm-prompt">確定？</span>
+                            <button class="btn btn-secondary" onclick="hideConfirmButtons('${singleDelWrapId}')">取消</button>
+                            <button class="btn btn-danger" onclick="deleteSong(${latest.id}, '${escapeAttr(group.key)}')">確定</button>
+                        </span>
+                    </span>
+                    ` : ''}
+                    `}
                     ${adminEditActive() ? `
                     <span id="${groupWrapId}" class="confirm-wrap">
                         <button class="btn btn-secondary btn-danger" data-role="ask" onclick="showConfirmButtons('${groupWrapId}')">🗑️ 一鍵刪除關卡</button>
