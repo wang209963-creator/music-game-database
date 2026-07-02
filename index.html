@@ -946,17 +946,28 @@
     }
 
 
-    async function downloadFileFromServer(fileUrl, songTitle) {
+    // 移除檔名中作業系統不允許的字元，避免下載失敗
+    function sanitizeFileNamePart(str) {
+        return String(str || '')
+            .replace(/[\\/:*?"<>|]/g, '_')
+            .trim();
+    }
+
+    async function downloadFileFromServer(fileUrl, songTitle, songSinger) {
         if (!fileUrl) return alert("找不到雲端下載連結。");
         try {
             const response = await fetch(fileUrl);
             if (!response.ok) throw new Error("網路回應不正確");
             const blob = await response.blob();
 
+            const titlePart = sanitizeFileNamePart(songTitle || '譜面');
+            const singerPart = sanitizeFileNamePart(songSinger || '未知歌手');
+            const fileName = `${titlePart}-${singerPart}.levelpack.json`;
+
             const blobUrl = window.URL.createObjectURL(blob);
             const link = document.createElement('a');
             link.href = blobUrl;
-            link.download = songTitle + ".levelpack.json";
+            link.download = fileName;
 
             document.body.appendChild(link);
             link.click();
@@ -1050,7 +1061,7 @@
                         ${v.description ? `<div class="desc-text">📝 ${escapeHtml(v.description)}</div>` : ''}
                     </div>
                     <div class="version-actions">
-                        <button class="btn btn-secondary" onclick="downloadFileFromServer('${escapeAttr(v.file_url)}', '${escapeAttr(v.title || '譜面')}')">下載</button>
+                        <button class="btn btn-secondary" onclick="downloadFileFromServer('${escapeAttr(v.file_url)}', '${escapeAttr(v.title || '譜面')}', '${escapeAttr(v.singer || '未知歌手')}')">下載</button>
                         ${canEdit ? `<button class="btn btn-secondary" onclick="openEditModal(${v.id})">${isOwn ? '✏️ 編輯' : '🛡️ 編輯資訊'}</button>` : ''}
                         ${canDelete ? `
                         <span id="${wrapId}" class="confirm-wrap">
@@ -1519,7 +1530,7 @@
                     ${latest.description ? `<div class="desc-text">📝 ${escapeHtml(latest.description)}</div>` : ''}
                 </div>
                 <div class="card-actions">
-                    <button class="btn" onclick="downloadFileFromServer('${escapeAttr(latest.file_url)}', '${escapeAttr(group.title || '譜面')}')">下載最新</button>
+                    <button class="btn" onclick="downloadFileFromServer('${escapeAttr(latest.file_url)}', '${escapeAttr(group.title || '譜面')}', '${escapeAttr(group.singer || '未知歌手')}')">下載最新</button>
                     ${personalEditActive() ? `
                     ${versionCount > 1 ? `
                     <button class="btn btn-secondary" onclick="openVersionModal('${escapeAttr(group.key)}')">查看版本 (${versionCount})</button>
