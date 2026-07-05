@@ -498,8 +498,17 @@
             updateUploadPanelState();
         });
 
-        const { data: { session } } = await window.mySupabase.auth.getSession();
-        if (session) {
+        const { data: { session }, error: sessionError } = await window.mySupabase.auth.getSession();
+        if (sessionError) {
+            // 🌟 本機殘留的登入資料已經壞掉/過期（例如 refresh token 失效），
+            // 這種情況下 supabase-js 之後每次請求都會夾帶這個壞掉的 token，
+            // 導致連「不需要登入」的查詢（例如瀏覽譜面列表）都可能被拒絕，
+            // 表面上看起來就像「變成一定要登入才能瀏覽」。
+            // 這裡主動清掉本地資料，讓瀏覽器改用匿名身份繼續運作。
+            console.warn('讀取登入狀態失敗，清除本地殘留的登入資料：', sessionError);
+            await window.mySupabase.auth.signOut();
+            currentUser = null;
+        } else if (session) {
             currentUser = await refreshCurrentUser();
             await ensureProfile();
         }
@@ -510,7 +519,14 @@
     // 強制向 Supabase 伺服器要一份最新的使用者資料（避免綁定 Google 後畫面還是顯示舊狀態）
     async function refreshCurrentUser() {
         const { data, error } = await window.mySupabase.auth.getUser();
-        if (error || !data || !data.user) return null;
+        if (error) {
+            // 🌟 同上：token 已失效卻抓不到使用者資料時，一併清除本地登入資料，
+            // 避免之後所有查詢（包含單純瀏覽）都被這個壞掉的 token 拖累。
+            console.warn('讀取使用者資料失敗，清除本地殘留的登入資料：', error);
+            await window.mySupabase.auth.signOut();
+            return null;
+        }
+        if (!data || !data.user) return null;
         return data.user;
     }
 
@@ -703,14 +719,29 @@
        歌曲清單載入 / 分組
     ============================================================ */
 
-    async function loadSongsFromCloud() {
+    async function loadSongsFromCloud(isRetryAfterSignOut) {
         try {
             let { data, error } = await window.mySupabase
                 .from('songs')
                 .select('*')
                 .order('created_at', { ascending: false });
 
-            if (error) throw error;
+            if (error) {
+                // 🌟 如果是因為本機殘留的登入 token 已經失效（常見於 401 / JWT 相關錯誤），
+                // 清掉本地登入資料後，改用匿名身份重試一次，避免使用者看起來像是
+                // 「一定要登入才能瀏覽」。只重試一次，避免無限迴圈。
+                const msg = (error.message || '').toLowerCase();
+                const looksLikeAuthError = error.code === 'PGRST301' || msg.includes('jwt') || msg.includes('token') || msg.includes('401');
+                if (looksLikeAuthError && !isRetryAfterSignOut) {
+                    console.warn('查詢譜面列表時偵測到登入憑證異常，清除本地登入資料並重試：', error);
+                    await window.mySupabase.auth.signOut();
+                    currentUser = null;
+                    renderUserBar();
+                    updateUploadPanelState();
+                    return loadSongsFromCloud(true);
+                }
+                throw error;
+            }
 
             songData = data || [];
             buildSongGroups();
