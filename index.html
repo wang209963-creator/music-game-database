@@ -330,6 +330,302 @@
         return { category, description: description || null };
     }
 
+    function
+        .tag { background: #e4e6eb; padding: 6px 12px; border-radius: 20px; font-size: 14px; cursor: pointer; user-select: none; }
+        .tag.active { background: #0070f3; color: white; }
+        .level-list { display: flex; flex-direction: column; gap: 12px; }
+        .level-card { background: white; padding: 16px; border-radius: 10px; box-shadow: 0 2px 8px rgba(0,0,0,0.06); display: flex; justify-content: space-between; align-items: center; }
+        .level-info { flex: 1; min-width: 0; padding-right: 10px; }
+        .level-info .title { font-size: 18px; font-weight: bold; margin-bottom: 4px; color: #1a1a1a; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+        .level-info .singer { color: #666; font-size: 14px; margin-bottom: 6px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+        .difficulty-badges { display: flex; gap: 4px; flex-wrap: wrap; }
+        .diff-badge { background: #e8f4ff; color: #0070f3; font-size: 11px; padding: 2px 6px; border-radius: 4px; font-weight: bold; border: 1px solid #b3d7ff; }
+        .cat-badge { background: #fff4e5; color: #ff9800; font-size: 11px; padding: 2px 6px; border-radius: 4px; font-weight: bold; border: 1px solid #ffe0b3; }
+        .desc-text { font-size: 13px; color: #555; margin-top: 6px; white-space: pre-wrap; word-break: break-word; line-height: 1.4; }
+        .card-actions { display: flex; gap: 8px; align-items: center; flex-shrink: 0; flex-wrap: wrap; justify-content: flex-end; }
+        .btn { background: #0070f3; color: white; border: none; padding: 10px 16px; border-radius: 6px; font-weight: bold; font-size: 14px; cursor: pointer; text-decoration: none; transition: 0.2s; }
+        .btn:hover { background: #0051cb; }
+        .btn-secondary { background: #666; font-size: 12px; padding: 4px 8px; }
+        .btn-secondary:disabled { background: #ccc; cursor: not-allowed; }
+        .btn-danger { background: #ff3b30 !important; }
+        .btn-danger:hover { background: #d92c22 !important; }
+        .no-result { text-align: center; color: #999; margin-top: 20px; }
+        .pagination-container { display: flex; flex-direction: column; align-items: center; gap: 10px; margin-top: 25px; }
+        .pagination { display: flex; justify-content: center; align-items: center; gap: 10px; flex-wrap: wrap; }
+        .form-group select, .form-group textarea { width: 100%; padding: 10px; border: 1px solid #ddd; border-radius: 6px; box-sizing: border-box; font-size: 14px; font-family: inherit; }
+        .page-info { font-size: 14px; color: #666; font-weight: bold; }
+        .page-info .current { color: #0070f3; }
+        .page-size-selector { font-size: 13px; color: #555; }
+        .page-size-selector select { padding: 4px 8px; border-radius: 4px; border: 1px solid #ddd; margin-left: 4px; cursor: pointer; }
+        .hidden { display: none !important; }
+        .version-meta { font-size: 12px; color: #888; margin-top: 4px; }
+
+        /* 🌟 彈窗共用樣式 */
+        .modal-overlay { position: fixed; inset: 0; background: rgba(0,0,0,0.5); display: flex; align-items: center; justify-content: center; z-index: 1000; padding: 20px; box-sizing: border-box; }
+        .modal-box { background: #fff; border-radius: 10px; padding: 24px; max-width: 400px; width: 100%; max-height: 85vh; overflow-y: auto; position: relative; }
+        .modal-box.wide { max-width: 550px; }
+        .modal-close { position: absolute; top: 10px; right: 12px; background: none; border: none; font-size: 20px; cursor: pointer; color: #999; line-height: 1; }
+        .modal-close:hover { color: #333; }
+
+        .auth-tabs { display: flex; gap: 8px; margin-bottom: 16px; }
+        .auth-tab-btn { flex: 1; padding: 8px; border: 1px solid #ddd; background: #f7f7f7; border-radius: 6px; cursor: pointer; font-weight: bold; color: #666; }
+        .auth-tab-btn.active { background: #0070f3; color: #fff; border-color: #0070f3; }
+        .form-group { margin-bottom: 12px; }
+        .form-group label { display: block; font-size: 13px; color: #555; margin-bottom: 4px; font-weight: bold; }
+        .form-group input { width: 100%; padding: 10px; border: 1px solid #ddd; border-radius: 6px; box-sizing: border-box; font-size: 14px; }
+        .auth-error { color: #ff3333; font-size: 13px; margin-bottom: 10px; min-height: 16px; }
+        .btn-block { width: 100%; margin-top: 6px; box-sizing: border-box; }
+        .btn-google { background: #fff; color: #444; border: 1px solid #ddd; }
+        .btn-google:hover { background: #f5f5f5; }
+        .divider { text-align: center; color: #999; font-size: 12px; margin: 16px 0; position: relative; }
+        .divider::before, .divider::after { content: ''; position: absolute; top: 50%; width: 40%; height: 1px; background: #eee; }
+        .divider::before { left: 0; } .divider::after { right: 0; }
+
+        .version-item { display: flex; justify-content: space-between; align-items: center; padding: 10px 0; border-bottom: 1px solid #eee; gap: 10px; flex-wrap: wrap; }
+        .version-item:last-child { border-bottom: none; }
+        .version-main { flex: 1; min-width: 150px; }
+        .version-uploader { font-weight: bold; font-size: 14px; }
+        .version-date { font-size: 11px; color: #999; margin-bottom: 4px; }
+        .version-actions { display: flex; gap: 6px; flex-shrink: 0; }
+
+        /* 🌟 管理員相關樣式 */
+        .admin-badge { background: #7c3aed; color: #fff; font-size: 11px; padding: 3px 8px; border-radius: 10px; font-weight: bold; margin-right: 4px; }
+        .btn-admin { background: #7c3aed !important; }
+        .btn-admin:hover { background: #6425d0 !important; }
+        .admin-user-row { display: flex; justify-content: space-between; align-items: center; gap: 10px; padding: 12px 0; border-bottom: 1px solid #eee; flex-wrap: wrap; }
+        .admin-user-row:last-child { border-bottom: none; }
+        .admin-user-main { flex: 1; min-width: 140px; }
+        .admin-user-name { font-weight: bold; font-size: 15px; }
+        .admin-user-id { font-size: 11px; color: #999; word-break: break-all; }
+        .admin-user-status { font-size: 12px; margin-top: 3px; font-weight: bold; }
+        .admin-user-status.banned { color: #ff3b30; }
+        .admin-user-status.active { color: #2e9e4a; }
+        .admin-user-actions { display: flex; gap: 6px; align-items: center; flex-wrap: wrap; }
+        .admin-ban-select { padding: 6px 8px; border-radius: 6px; border: 1px solid #ddd; font-size: 13px; }
+        .admin-empty { text-align: center; color: #999; padding: 20px 0; }
+        .admin-loading { text-align: center; color: #7c3aed; padding: 10px 0; font-weight: bold; }
+
+        /* 🌟 行內刪除確認（取代跳出視窗） */
+        .confirm-wrap { display: inline-flex; align-items: center; }
+        .confirm-box { display: inline-flex; align-items: center; gap: 6px; }
+        .confirm-prompt { font-size: 12px; color: #ff3b30; font-weight: bold; white-space: nowrap; }
+
+        @media (max-width: 480px) {
+            .level-card { flex-direction: column; align-items: flex-start; gap: 12px; }
+            .card-actions { width: 100%; justify-content: flex-end; }
+        }
+    </style>
+</head>
+<body>
+
+<div class="header-bar">
+    <h1>🎵 線上譜面下載中心</h1>
+</div>
+
+<div id="userBar" class="user-bar"></div>
+
+<div class="container">
+    <div class="upload-panel">
+        <div id="uploadArea" class="upload-area" onclick="triggerFileUpload()">
+            <p id="uploadAreaText">點擊此處選擇並上傳譜面檔案</p>
+            <span id="uploadAreaHint" style="font-size: 12px; color: #666;">支援帶影片的 .levelpack 大型檔案</span>
+            <input type="file" id="fileInput" accept=".json" onchange="handleFileUpload(event)">
+        </div>
+        <div style="text-align:center; margin-top:10px;">
+            <button id="folderUploadBtn" class="btn btn-secondary" onclick="triggerFolderUpload()">📁 上傳整個資料夾（自動拆成多個關卡）</button>
+            <input type="file" id="folderInput" webkitdirectory directory multiple style="display:none;" onchange="handleFolderUpload(event)">
+        </div>
+
+        <div class="form-group" style="margin-top:14px;">
+            <label>分類（選填）</label>
+            <select id="uploadCategorySelect" onchange="toggleUploadCategoryCustom()">
+                <option value="無" selected>無</option>
+                <option value="原唱">原唱</option>
+                <option value="翻唱">翻唱</option>
+                <option value="抽象">抽象</option>
+                <option value="其他">其他（打字）</option>
+            </select>
+        </div>
+        <div class="form-group hidden" id="uploadCategoryCustomGroup">
+            <label>自訂分類名稱</label>
+            <input type="text" id="uploadCategoryCustom" placeholder="請輸入分類名稱">
+        </div>
+        <div class="form-group">
+            <label>譜面說明（選填，不填則不顯示）</label>
+            <textarea id="uploadDescriptionInput" rows="2" placeholder="可留空，用來補充說明譜面內容"></textarea>
+            <span style="font-size:11px; color:#999;">📁 上傳整個資料夾時，會套用相同的分類與說明到該批次的每個譜面。</span>
+        </div>
+
+        <div id="uploadLoading" class="upload-loading">⏳ 大檔案雲端同步中，請勿關閉網頁...</div>
+    </div>
+
+    <input type="text" id="searchBar" name="song_search_field" class="search-box" placeholder="🔍 輸入歌名或歌手進行大清單搜尋..." autocomplete="off" autocorrect="off" autocapitalize="off" spellcheck="false">
+
+    <div class="singer-filter-wrapper">
+        <button type="button" class="singer-toggle-btn" onclick="toggleSingerBox()">🔍 按歌手快速篩選標籤...</button>
+        <div id="singerContainerBox" class="singer-container-box hidden">
+            <input type="text" id="tagSearchInput" name="singer_search_field" class="tag-search-box" placeholder="🎯 輸入歌手名稱...過濾下方標籤" oninput="filterActualTags()" autocomplete="off" autocorrect="off" autocapitalize="off" spellcheck="false">
+            <div id="filterTags" class="filter-tags"></div>
+        </div>
+    </div>
+
+    <div id="levelList" class="level-list"></div>
+
+    <div id="paginationWrapper" class="pagination-container">
+        <div class="pagination">
+            <button id="firstPageBtn" class="btn btn-secondary" style="font-size:14px; padding:8px 10px;" onclick="goToFirstPage()">⏮ 第一頁</button>
+            <button id="prevPageBtn" class="btn btn-secondary" style="font-size:14px; padding:8px 14px;" onclick="changePage(-1)">上一頁</button>
+            <span id="pageInfo" class="page-info">第 1 / 1 頁</span>
+            <button id="nextPageBtn" class="btn btn-secondary" style="font-size:14px; padding:8px 14px;" onclick="changePage(1)">下一頁</button>
+            <button id="lastPageBtn" class="btn btn-secondary" style="font-size:14px; padding:8px 10px;" onclick="goToLastPage()">最後一頁 ⏭</button>
+        </div>
+        <div class="page-size-selector">
+            顯示筆數：
+            <select id="pageSizeSelect" onchange="changePageSize()">
+                <option value="10" selected>10 筆</option>
+                <option value="20">20 筆</option>
+                <option value="40">40 筆</option>
+                <option value="100">100 筆</option>
+            </select>
+        </div>
+    </div>
+</div>
+
+<!-- 🌟 登入 / 註冊 彈窗 -->
+<div id="authModal" class="modal-overlay hidden">
+    <div class="modal-box">
+        <button class="modal-close" onclick="closeAuthModal()">✕</button>
+        <div class="auth-tabs">
+            <button id="tabLoginBtn" class="auth-tab-btn active" onclick="switchAuthTab('login')">登入</button>
+            <button id="tabRegisterBtn" class="auth-tab-btn" onclick="switchAuthTab('register')">註冊</button>
+        </div>
+        <div id="authError" class="auth-error"></div>
+
+        <form id="loginForm" onsubmit="return false;">
+            <div class="form-group">
+                <label>帳號</label>
+                <input type="text" id="loginAccount" name="loginAccount" placeholder="請輸入帳號" autocomplete="username">
+            </div>
+            <div class="form-group">
+                <label>密碼</label>
+                <input type="password" id="loginPassword" name="loginPassword" placeholder="請輸入密碼" autocomplete="current-password">
+            </div>
+            <button type="submit" class="btn btn-block" onclick="doLogin()">登入</button>
+            <div class="divider">或</div>
+            <button type="button" class="btn btn-block btn-google" onclick="doGoogleLogin()">🔵 使用 Google 帳號登入</button>
+        </form>
+
+        <form id="registerForm" class="hidden" onsubmit="return false;">
+            <div class="form-group">
+                <label>顯示名字</label>
+                <input type="text" id="regDisplayName" name="regDisplayName" placeholder="其他人會看到的名字" autocomplete="nickname">
+            </div>
+            <div class="form-group">
+                <label>帳號</label>
+                <input type="text" id="regAccount" name="regAccount" placeholder="3-20 個英數字/底線" autocomplete="username">
+            </div>
+            <div class="form-group">
+                <label>密碼</label>
+                <input type="password" id="regPassword" name="regPassword" placeholder="至少 6 個字元" autocomplete="new-password">
+            </div>
+            <button type="submit" class="btn btn-block" onclick="doRegister()">註冊</button>
+        </form>
+    </div>
+</div>
+
+<!-- 🌟 版本清單彈窗 -->
+<div id="versionModal" class="modal-overlay hidden">
+    <div class="modal-box wide">
+        <button class="modal-close" onclick="closeVersionModal()">✕</button>
+        <h3 id="versionModalTitle" style="margin-top:0; padding-right:20px;"></h3>
+        <div id="versionList"></div>
+    </div>
+</div>
+
+<!-- 🌟 編輯譜面資訊彈窗（分類 / 說明 / 檔案） -->
+<div id="editModal" class="modal-overlay hidden">
+    <div class="modal-box">
+        <button class="modal-close" onclick="closeEditModal()">✕</button>
+        <h3 style="margin-top:0; padding-right:20px;">✏️ 編輯譜面資訊</h3>
+        <div class="form-group">
+            <label>分類</label>
+            <select id="editCategorySelect" onchange="toggleEditCategoryCustom()">
+                <option value="無">無</option>
+                <option value="原唱">原唱</option>
+                <option value="翻唱">翻唱</option>
+                <option value="抽象">抽象</option>
+                <option value="其他">其他（打字）</option>
+            </select>
+        </div>
+        <div class="form-group hidden" id="editCategoryCustomGroup">
+            <label>自訂分類名稱</label>
+            <input type="text" id="editCategoryCustom" placeholder="請輸入分類名稱">
+        </div>
+        <div class="form-group">
+            <label>譜面說明（選填，不填則不顯示）</label>
+            <textarea id="editDescription" rows="3" placeholder="可留空"></textarea>
+        </div>
+        <div class="form-group" id="editFileGroup">
+            <label>更換檔案（選填）</label>
+            <input type="file" id="editFileInput" accept=".json">
+        </div>
+        <button class="btn btn-block" onclick="saveEditVersion()">儲存變更</button>
+    </div>
+</div>
+
+<!-- 🌟 管理員後台：使用者清單彈窗 -->
+<div id="adminModal" class="modal-overlay hidden">
+    <div class="modal-box wide">
+        <button class="modal-close" onclick="closeAdminModal()">✕</button>
+        <h3 style="margin-top:0; padding-right:20px;">🛡️ 管理員後台・使用者管理</h3>
+        <input type="text" id="adminUserSearch" class="search-box" style="margin-bottom:12px;" placeholder="🔍 搜尋玩家（顯示名稱 / 使用者ID）..." oninput="renderAdminUserList()" autocomplete="off" autocorrect="off" autocapitalize="off" spellcheck="false">
+        <div id="adminUserList"></div>
+    </div>
+</div>
+
+<script>
+    const SUPABASE_URL = "https://ajrzfconrxvqnkjtrzeg.supabase.co";
+    const SUPABASE_KEY = "sb_publishable_H4HdOMcxVi1RoqRVzwdgUw_ijbJATF-";
+
+    window.mySupabase = null; // 等 CDN 函式庫真的準備好之後才會建立，見下方 initSupabaseAndApp()
+
+    // 帳號系統用：把使用者輸入的「帳號」轉成 Supabase Auth 需要的假 email 格式
+    const EMAIL_DOMAIN = "@levelpack.local";
+
+    let songData = [];      // 所有版本（扁平清單，來自 songs 資料表）
+    let songGroups = [];    // 依「歌名+歌手」分組後的清單，畫面主要用這個
+    let currentSingerFilter = "全部";
+    let currentPage = 1;
+    let itemsPerPage = 10;
+
+    let currentUser = null;     // Supabase auth 使用者物件
+    let currentProfile = null;  // { id, display_name, is_admin }
+    let allProfiles = [];       // 管理員後台用：所有使用者的 profiles 清單
+    let currentOpenGroupKey = null; // 目前開啟中的「版本清單」彈窗對應的關卡 key
+    let totalPagesGlobal = 1;   // 目前清單的總頁數（給跳至第一頁/最後一頁使用）
+    let currentEditId = null;   // 目前正在編輯（分類/說明/檔案）的版本 id
+
+    // 分類（原唱、翻唱、抽象、其他（打字）、無）選單：讀取目前的分類選擇
+    function toggleUploadCategoryCustom() {
+        const sel = document.getElementById('uploadCategorySelect');
+        const group = document.getElementById('uploadCategoryCustomGroup');
+        if (!sel || !group) return;
+        group.classList.toggle('hidden', sel.value !== '其他');
+    }
+
+    function getUploadMeta() {
+        const sel = document.getElementById('uploadCategorySelect');
+        const custom = document.getElementById('uploadCategoryCustom');
+        const desc = document.getElementById('uploadDescriptionInput');
+        let category = sel ? sel.value : '無';
+        if (category === '其他') {
+            category = (custom && custom.value.trim()) || '其他';
+        }
+        if (category === '無' || !category) category = null;
+        const description = desc ? desc.value.trim() : '';
+        return { category, description: description || null };
+    }
+
     function resetUploadMeta() {
         const sel = document.getElementById('uploadCategorySelect');
         const custom = document.getElementById('uploadCategoryCustom');
