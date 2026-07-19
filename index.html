@@ -876,6 +876,31 @@
     }
 
     /* ============================================================
+       🚩 高儲存風險偵測
+       ------------------------------------------------------------
+       遊戲端在玩家選擇「不壓縮」或「320 kbps 過高位元率」時，會在關卡檔案的
+       audio.storageFlag 欄位悄悄留下標記（不影響遊玩、玩家在遊戲內完全看不到）。
+       這個下載中心使用的雲端儲存空間僅約 1GB，為避免被少數超大音訊檔案塞爆，
+       只要偵測到這個標記，一律直接拒絕上傳並報錯。
+    ============================================================ */
+    const STORAGE_FLAG_LABELS = {
+        uncompressed: '未壓縮音訊（WAV／FLAC／AIFF 等格式），檔案體積過大',
+        high_bitrate: '過高位元率音訊（320 kbps），檔案體積過大'
+    };
+    function detectAudioStorageFlag(jsonContent) {
+        const flag = jsonContent && jsonContent.audio && jsonContent.audio.storageFlag;
+        if (flag && STORAGE_FLAG_LABELS[flag]) return flag;
+        return null;
+    }
+    function buildStorageFlagError(flag) {
+        return new Error(
+            `⛔ 無法上傳：這個關卡的音訊屬於「${STORAGE_FLAG_LABELS[flag]}」。` +
+            `本下載中心的雲端儲存空間有限（約 1GB），為了讓所有人都能持續分享譜面，系統會直接拒絕這類高儲存風險的檔案。` +
+            `請回到遊戲的「音訊壓縮設定」重新選擇 192 kbps 以下的壓縮方式後再重新上傳。`
+        );
+    }
+
+    /* ============================================================
        上傳
     ============================================================ */
 
@@ -891,6 +916,10 @@
                 const rawText = e.target.result;
                 let jsonContent = {};
                 try { jsonContent = JSON.parse(rawText); } catch (pErr) {}
+
+                // 🚩 偵測高儲存風險標記，命中直接報錯並中止，不做任何雲端上傳動作
+                const storageFlag = detectAudioStorageFlag(jsonContent);
+                if (storageFlag) { reject(buildStorageFlagError(storageFlag)); return; }
 
                 const cleanFileName = file.name
                     .replace(".levelpack.json", "")
@@ -1332,6 +1361,10 @@
             textReader.onload = function(e) {
                 let jsonContent = {};
                 try { jsonContent = JSON.parse(e.target.result); } catch (pErr) {}
+
+                // 🚩 偵測高儲存風險標記，命中直接報錯並中止，不做任何雲端上傳動作
+                const storageFlag = detectAudioStorageFlag(jsonContent);
+                if (storageFlag) { reject(buildStorageFlagError(storageFlag)); return; }
 
                 let diffs = [];
                 if (jsonContent.charts && typeof jsonContent.charts === 'object') {
